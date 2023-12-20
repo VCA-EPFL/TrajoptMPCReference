@@ -847,4 +847,4 @@ class TrajoptMPCReference:
             print(x_trace)
             print(u_trace)
 
-        return
+        return x_trace, u_trace
