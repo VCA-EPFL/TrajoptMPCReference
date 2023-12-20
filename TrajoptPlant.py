@@ -1,7 +1,8 @@
 import numpy as np
 import random
-from GRiD import RBDReference
-from GRiD import URDFParser
+
+from GRiD.RBDReference import RBDReference
+from GRiD.URDFParser import URDFParser
 
 class TrajoptPlant:
 	def __init__(self, integrator_type: int = 0, options = {}, need_path: bool = False):
