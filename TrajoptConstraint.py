@@ -1,7 +1,8 @@
 import numpy as np
+from typing import List
 
 class BoxConstraint:
-	def __init__(self, constraint_size: int = 0, num_timesteps: int = 0, upper_bounds: list[float] = [], lower_bounds: list[float] = [], mode: str = "NONE", options = {}):
+	def __init__(self, constraint_size: int = 0, num_timesteps: int = 0, upper_bounds: List[float] = [], lower_bounds: List[float] = [], mode: str = "NONE", options = {}):
 		# constants
 		self.constraint_size = constraint_size
 		self.num_timesteps = num_timesteps
@@ -173,23 +174,27 @@ class TrajoptConstraint:
 		# generic constraints
 		# TBD
 
-	def set_joint_limits(self, upper_bounds: list[float], lower_bounds: list[float], mode: str, options = {}):
+	def set_joint_limits(self, upper_bounds: List[float], lower_bounds: List[float], mode: str, options = {}):
+		# print('set_joint_limits')
 		# construct box constraint object
 		options['jacobian_extra_columns_tail'] = self.nv + self.nu
 		self.joint_limits = BoxConstraint(self.nq, self.num_timesteps-1, upper_bounds, lower_bounds, mode, options)
 
-	def set_velocity_limits(self, upper_bounds: list[float], lower_bounds: list[float], mode: str, options = {}):
+	def set_velocity_limits(self, upper_bounds: List[float], lower_bounds: List[float], mode: str, options = {}):
+		# print('set_velocity_limits')
 		# construct box constraint object
 		options['jacobian_extra_columns_head'] = self.nq
 		options['jacobian_extra_columns_tail'] = self.nu
 		self.velocity_limits = BoxConstraint(self.nv, self.num_timesteps, upper_bounds, lower_bounds, mode, options)
 
-	def set_torque_limits(self, upper_bounds: list[float], lower_bounds: list[float], mode: str, options = {}):
+	def set_torque_limits(self, upper_bounds: List[float], lower_bounds: List[float], mode: str, options = {}):
+		# print('set_torque_limits')
 		# construct box constraint object
 		options['jacobian_extra_columns_head'] = self.nq + self.nv
 		self.torque_limits = BoxConstraint(self.nu, self.num_timesteps - 1, upper_bounds, lower_bounds, mode, options)
 
 	def value_hard_constraints(self, xk: np.ndarray, uk: np.ndarray = None, timestep: int = None):
+		
 		constraint_index = 0
 		if timestep is None:
 			timestep = self.num_timesteps - 1
@@ -214,6 +219,7 @@ class TrajoptConstraint:
 		return ck
 
 	def jacobian_hard_constraints(self, xk: np.ndarray, uk: np.ndarray = None, timestep: int = None):
+		
 		constraint_index = 0
 		if timestep is None:
 			timestep = self.num_timesteps - 1
@@ -243,6 +249,7 @@ class TrajoptConstraint:
 		return len(x)
 		
 	def total_hard_constraints(self, x: np.ndarray, u: np.ndarray, timestep: int = None):
+		
 		total = 0
 		if timestep is None:
 			for k in range(self.num_timesteps - 1):
@@ -256,6 +263,7 @@ class TrajoptConstraint:
 		return total
 
 	def value_soft_constraints(self, xk: np.ndarray, uk: np.ndarray = None, timestep: int = None):
+		
 		if timestep is None:
 			timestep = self.num_timesteps - 1
 		value = 0
@@ -269,6 +277,7 @@ class TrajoptConstraint:
 		return value
 
 	def jacobian_soft_constraints(self, xk: np.ndarray, uk: np.ndarray = None, timestep: int = None):
+		
 		if timestep is None:
 			timestep = self.num_timesteps - 1
 		jacobian = None
@@ -290,6 +299,7 @@ class TrajoptConstraint:
 		return jacobian
 
 	def total_soft_constraints(self, timestep: int = None):
+		
 		total = 0
 		if timestep is None:
 			if (not (self.joint_limits is None)) and self.joint_limits.is_soft_constraint_mode():
@@ -308,6 +318,7 @@ class TrajoptConstraint:
 		return total
 
 	def max_soft_constraint_value(self, x: np.ndarray, u: np.ndarray):
+		
 		max_value = 0
 		if (not (self.joint_limits is None)) and self.joint_limits.is_soft_constraint_mode():
 			max_value = max(max_value, self.joint_limits.max_soft_constraint_value(x))
@@ -318,6 +329,7 @@ class TrajoptConstraint:
 		return max_value
 
 	def update_soft_constraint_constants(self, x: np.ndarray, u: np.ndarray):
+		
 		all_mu_over_limit_flag = True
 		if not (self.joint_limits is None):
 			all_mu_over_limit_flag = all_mu_over_limit_flag and self.joint_limits.update_soft_constraint_constants(x)
@@ -328,6 +340,7 @@ class TrajoptConstraint:
 		return all_mu_over_limit_flag
 
 	def shift_soft_constraint_constants(self, shift_steps: int):
+		
 		if not (self.joint_limits is None):
 			self.joint_limits.shift_soft_constraint_constants(shift_steps)
 		if not (self.velocity_limits is None):

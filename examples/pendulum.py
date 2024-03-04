@@ -21,7 +21,7 @@ hard_constraints.set_torque_limits([7.0],[-7.0],"ACTIVE_SET")
 soft_constraints = TrajoptConstraint(plant.get_num_pos(),plant.get_num_vel(),plant.get_num_cntrl(),N)
 soft_constraints.set_torque_limits([7.0],[-7.0],"AUGMENTED_LAGRANGIAN")
 
-options = {"expected_reduction_min_SQP_DDP":-100} # needed for hard_constraints - TODO debug why
+options = {"expected_reduction_min_SQP_DDP":-100, "display": False} # needed for hard_constraints - TODO debug why
 
 runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)
 
