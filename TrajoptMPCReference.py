@@ -8,6 +8,8 @@ from TrajoptConstraint import TrajoptConstraint, BoxConstraint
 PCG = importlib.import_module("GBD-PCG-Python").PCG
 np.set_printoptions(precision=4, suppress=True, linewidth = 100)
 
+
+
 class SQPSolverMethods(enum.Enum):
     N = "N"
     S = "S"
@@ -61,7 +63,7 @@ class TrajoptMPCReference:
         options.setdefault('RETURN_TRACE_linSys', False)
         # DDP/SQP options
         options.setdefault('exit_tolerance_SQP_DDP', 1e-6)
-        options.setdefault('max_iter_SQP_DDP', 25)
+        options.setdefault('max_iter_SQP_DDP', 50)
         options.setdefault('DEBUG_MODE_SQP_DDP', False)
         options.setdefault('alpha_factor_SQP_DDP', 0.5)
         options.setdefault('alpha_min_SQP_DDP', 0.005)
@@ -86,7 +88,6 @@ class TrajoptMPCReference:
         options.setdefault('simulator_steps_mpc', 1)
 
     def formKKTSystemBlocks(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float):
-        # print('formKKTSystemBlocks')
         nq = self.plant.get_num_pos()
         nv = self.plant.get_num_vel()
         nu = self.plant.get_num_cntrl()
@@ -169,7 +170,6 @@ class TrajoptMPCReference:
         return G, g, C, c
 
     def totalHardConstraintViolation(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float, mode = None):
-        # print('totalHardConstraintViolation')
         mode_func = sum
         if mode == "MAX":
             mode_func = max
@@ -196,7 +196,9 @@ class TrajoptMPCReference:
         
         J = 0
         for k in range(N-1):
+
             J += self.cost.value(x[:,k], u[:,k], k)
+        
         J += self.cost.value(x[:,N-1], timestep = N-1)
         # add soft constraints if applicable
         if self.other_constraints.total_soft_constraints() > 0:
@@ -206,7 +208,6 @@ class TrajoptMPCReference:
         return J
 
     def solveKKTSystem(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float, rho: float = 0.0, options = {}):
-        # print('solveKKTSystem')
         nq = self.plant.get_num_pos()
         nv = self.plant.get_num_vel()
         nu = self.plant.get_num_cntrl()
@@ -236,7 +237,6 @@ class TrajoptMPCReference:
         return dxul
 
     def solveKKTSystem_Schur(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float, rho: float = 0.0, use_PCG = False, options = {}):
-        # print('solveKKTSystem_Schur')
         nq = self.plant.get_num_pos()
         nv = self.plant.get_num_vel()
         nu = self.plant.get_num_cntrl()
@@ -283,17 +283,17 @@ class TrajoptMPCReference:
             return dxul
 
     def reduce_regularization(self, rho: float, drho: float, options: dict):
-        # print('reduce_regularization')
         self.set_default_options(options)
         drho = min(drho/options['rho_factor_SQP_DDP'], 1/options['rho_factor_SQP_DDP'])
         rho = max(rho*drho, options['rho_min_SQP_DDP'])
         return rho, drho
 
     def check_for_exit_or_error(self, error: bool, delta_J: float, iteration: int, rho: float, drho: float, options):
-        # print('check_for_exit_or_error')
+        print("check_for_exit_or_error")
         self.set_default_options(options)
         exit_flag = False
         if error:
+            print("    Error")
             drho = max(drho*options['rho_factor_SQP_DDP'], options['rho_factor_SQP_DDP'])
             rho = max(rho*drho, options['rho_min_SQP_DDP'])
             if rho > options['rho_max_SQP_DDP']:
@@ -301,11 +301,15 @@ class TrajoptMPCReference:
                     print("Exiting for max_rho")
                 exit_flag = True
         elif delta_J < options['exit_tolerance_SQP_DDP']:
+            print("    delta_J<exit_tolerance_SQP_DDP")
+
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Exiting for exit_tolerance_SQP_DDP")
             exit_flag = True
         
         if iteration == options['max_iter_SQP_DDP'] - 1:
+            print("    max iteration inner loop")
+    
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Exiting for max_iter")
             exit_flag = True
@@ -314,16 +318,20 @@ class TrajoptMPCReference:
         return exit_flag, iteration, rho, drho
 
     def check_and_update_soft_constraints(self, x: np.ndarray, u: np.ndarray, iteration: int, options):
-        # print('check_and_update_soft_constraints')
+        print("check_and_update_soft_constraints")
         exit_flag = False
         # check for exit for constraint convergence
         max_c = self.other_constraints.max_soft_constraint_value(x,u)
         if max_c < options['exit_tolerance_softConstraints']:
+            print("      max_c<exit_tolerance_softConstraints")
+
             if options['DEBUG_MODE_Soft_Constraints']:
                 print("Exiting for Soft Constraint Convergence")
             exit_flag = True
         # check for exit for iterations
         if iteration == options['max_iter_softConstraints'] - 1:
+            print("      max iteration soft consta")
+
             if options['DEBUG_MODE_Soft_Constraints']:
                 print("Exiting for Soft Constraint Max Iters")
             exit_flag = True
@@ -340,7 +348,6 @@ class TrajoptMPCReference:
         return exit_flag, iteration
 
     def SQP(self, x: np.ndarray, u: np.ndarray, N: int, dt: float, LINEAR_SYSTEM_SOLVER_METHOD: SQPSolverMethods = SQPSolverMethods.N, options = {}):
-        # print('SQP')
         self.set_default_options(options)
         options_linSys = {'DEBUG_MODE': options['DEBUG_MODE_linSys']}
 
@@ -362,6 +369,8 @@ class TrajoptMPCReference:
         # Start the main loops (soft constraint outer loop)
         soft_constraint_iteration = 0
         while 1:
+            print("outer loop")
+
             # Initialize the QP solve
             J = 0
             c = 0
@@ -375,6 +384,9 @@ class TrajoptMPCReference:
             # L1 merit function with balanced J and c
             mu = J/c if c != 0 else 10
             mu = 10
+            print("type J: ", J)
+            print("type mu: ", type(mu*c))
+            print("type c :", c)
             merit = J + mu*c
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Initial Cost, Constraint Violation, Merit Function: ", J, c, merit)
@@ -389,6 +401,9 @@ class TrajoptMPCReference:
                 #
                 # Solve QP to get step direction
                 #
+                print("main loop")
+                print("Iteration: ", iteration)
+
                 if LINEAR_SYSTEM_SOLVER_METHOD == SQPSolverMethods.N: # standard backslash
                     dxul = self.solveKKTSystem(x, u, xs, N, dt, rho, options_linSys)
                 elif LINEAR_SYSTEM_SOLVER_METHOD == SQPSolverMethods.S: # schur complement backslash
@@ -420,6 +435,8 @@ class TrajoptMPCReference:
                     #
                     # Apply the update
                     #
+                    print("inner loop")
+
                     x_new = copy.deepcopy(x)
                     u_new = copy.deepcopy(u)
                     for k in range(N):
@@ -438,15 +455,19 @@ class TrajoptMPCReference:
                     #
                     D = 0 
                     for k in range(N-1):
-                        D += np.dot(self.cost.gradient(x_new[:,k], u_new[:,k], k), dxul[n*k : n*(k+1), 0])
+                        D += self.cost.gradient(x_new[:,k], u_new[:,k], k).dot(dxul[n*k : n*(k+1), 0])
+                        
                         # Add soft constraints if applicable
                         if self.other_constraints.total_soft_constraints(timestep = k) > 0:
-                            D += np.dot(self.other_constraints.jacobian_soft_constraints(x_new[:,k], u_new[:,k], k)[:,0], dxul[n*k : n*(k+1), 0])
+                            D += self.other_constraints.jacobian_soft_constraints(x_new[:,k], u_new[:,k], k)[:,0].dot(dxul[n*k : n*(k+1), 0])
 
-                    D += np.dot(self.cost.gradient(x_new[:,N-1], timestep = N-1), dxul[n*(N-1) : n*(N-1)+nx, 0])
+                    # D += np.dot(self.cost.gradient(x_new[:,N-1], timestep = N-1), dxul[n*(N-1) : n*(N-1)+nx, 0])
+                    D += self.cost.gradient(x_new[:,N-1], timestep = N-1).dot(dxul[n*(N-1) : n*(N-1)+nx, 0])
                     # Add soft constraints if applicable
                     if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
-                        D += np.dot(self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0], dxul[n*(N-1) : n*(N-1)+nx, 0])
+                        #D += np.dot(self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0], dxul[n*(N-1) : n*(N-1)+nx, 0])
+                        D += self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0].dot(dxul[n*(N-1) : n*(N-1)+nx, 0])
+
                     
                     #
                     # Compute totals for line search test
@@ -461,8 +482,8 @@ class TrajoptMPCReference:
                     #
                     # If succeeded accept new trajectory according to Nocedal and Wright 18.3
                     #
-                  
                     
+
                     if (delta_merit >= 0 and reduction_ratio >= options['expected_reduction_min_SQP_DDP'] and \
                                              reduction_ratio <= options['expected_reduction_max_SQP_DDP']):
                         x = x_new
@@ -854,7 +875,8 @@ class TrajoptMPCReference:
                 print(xs)
 
             err = xs - self.cost.xg
-            err = np.dot(err,err)
+            # err = np.dot(err,err)
+            err = err.dot(err)
             delta_err = abs(last_err - err)
             
             if delta_err < 1e-4:

@@ -4,6 +4,8 @@ import random
 from GRiD.RBDReference import RBDReference
 from GRiD.URDFParser import URDFParser
 
+
+
 class TrajoptPlant:
 	def __init__(self, integrator_type: int = 0, options = {}, need_path: bool = False):
 		self.validate_integrator_type(integrator_type)

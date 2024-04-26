@@ -68,10 +68,12 @@ class BoxConstraint:
 					exit()
 				# squared term
 				sq_err = np.square(full_value)
-				value = np.sum(np.dot(self.quadratic_penalty_mu[:,timestep],sq_err))
+				# value = np.sum(np.dot(self.quadratic_penalty_mu[:,timestep],sq_err))
+				value = np.sum(self.quadratic_penalty_mu[:,timestep].dot(sq_err))
 				# AL term
 				if mode == "AUGMENTED_LAGRANGIAN":
-					value += np.dot(self.augmented_lagrangian_lambda[:,timestep],full_value)
+					# value += np.dot(self.augmented_lagrangian_lambda[:,timestep],full_value)
+					value += self.augmented_lagrangian_lambda[:,timestep].dot(full_value)
 				return value
 			elif mode == "ADMM_PROJECTION":
 				print("[!] ERROR NOT IMPLEMENTED YET")
