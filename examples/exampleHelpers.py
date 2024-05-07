@@ -5,7 +5,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import matplotlib.pyplot as plt
 from TrajoptPlant import TrajoptPlant, DoubleIntegratorPlant, PendulumPlant, CartPolePlant, URDFPlant
-from TrajoptCost import TrajoptCost, QuadraticCost, ArmCost, UrdfCost
+from TrajoptCost import TrajoptCost, QuadraticCost, ArmCost, UrdfCost, NumericalCost
 from TrajoptConstraint import TrajoptConstraint, BoxConstraint
 from TrajoptMPCReference import TrajoptMPCReference, SQPSolverMethods, MPCSolverMethods
 
@@ -97,16 +97,19 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		print("Cost [", J, "]")
 		print("Final State Error vs. Goal")
 		
-		dx=[]
-		for i in range(x.shape[1]):
-			dx.append(trajoptMPCReference.cost.delta_x(x[:,i]))
+		# dx=[]
+		# for i in range(x.shape[1]):
+		# 	dx.append(trajoptMPCReference.cost.delta_x(x[:,i]))
 			
-		print("dx\n",dx)
-		file_path = "delta_x.csv"
-		with open(file_path, "w", newline="") as csv_file:
-			writer = csv.writer(csv_file)
-			writer.writerows(dx)
+		# print("dx\n",dx)
+		# file_path = "delta_x.csv"
+		# with open(file_path, "w", newline="") as csv_file:
+		# 	writer = csv.writer(csv_file)
+		# 	writer.writerows(dx)
 
+
+		if isinstance(trajoptMPCReference.cost,UrdfCost):
+			error=trajoptMPCReference.cost.delta_x(x[:,-1])
 
 		if isinstance(trajoptMPCReference.cost,QuadraticCost):
 			error=x[:,-1] - trajoptMPCReference.cost.xg
@@ -116,7 +119,7 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		 	# state, _ =trajoptMPCReference.cost.symbolic_cost_eval()
 			error_x=posx-np.array(trajoptMPCReference.cost.xg[0])
 			error_y=posy-np.array(trajoptMPCReference.cost.xg[1])
-
+			error= 0
 			print("Position in x")
 			print(posx)
 			print("Position in y")
@@ -124,7 +127,8 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 			print("Type x: ", type(x))
 			
 
-		return t2[0]-t1[0], t2[1] - t1[1]#, np.linalg.norm(error[:2])
+		return t2[0]-t1[0], error 
+		#np.linalg.norm(error[:2])
 
 
 	
@@ -142,7 +146,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	
 	trajoptMPCReference = TrajoptMPCReference(plant, cost)
 	
-	run_time, cpu_time=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
+	run_time, error=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
 	# print("---------------------------------")
@@ -160,7 +164,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	# runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
-	return run_time, cpu_time
+	return run_time, error
 	#return error
 
 def runSolversMPC(trajoptMPCReference, N, dt, solver_methods, options = {}):

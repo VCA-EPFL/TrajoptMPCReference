@@ -295,7 +295,22 @@ class URDFPlant(TrajoptPlant):
 	def __init__(self, integrator_type = 0, options = {}):
 		super().__init__(integrator_type, options, True)
 		parser = URDFParser()
-		self.robot = parser.parse(options['path_to_urdf'])
+		try:
+			print("trying")
+			self.robot = parser.parse(options['path_to_urdf'])
+		except (URDFParsingError, FileNotFoundError):
+			print("error1")
+			try:
+				self.robot = parser.parse('examples/2_link.urdf')
+			except (URDFParsingError, FileNotFoundError):
+				print("error2")
+
+				try:
+					self.robot = parser.parse('2_link.urdf')
+				except (URDFParsingError, FileNotFoundError):
+					print("error3")
+
+					raise ValueError("Failed to parse URDF file at the given path.")
 		self.rbdReference = RBDReference(self.robot)
 
 	def forward_dynamics(self, x: np.ndarray, u: np.ndarray):

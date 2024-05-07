@@ -41,17 +41,14 @@ class TrajoptMPCReference:
         self.other_constraints = constraintObj
 
     def update_cost(self, costObj: TrajoptCost):
-        # print('update_cost')
         assert issubclass(type(costObj),TrajoptCost), "Must pass in a TrajoptCost object to update_cost in TrajoptMPCReference."
         self.cost = costObj
 
     def update_plant(self, plantObj: TrajoptPlant):
-        # print('update_plant')
         assert issubclass(type(plantObj),TrajoptPlant), "Must pass in a TrajoptPlant object to update_plant in TrajoptMPCReference."
         self.plant = plantObj
 
     def update_constraints(self, constraintObj: TrajoptConstraint):
-        # print('updat_constraints')
         assert issubclass(type(constraintObj),TrajoptConstraint), "Must pass in a TrajoptConstraint object to update_constraints in TrajoptMPCReference."
         self.other_constraints = constraintObj
 
@@ -289,11 +286,9 @@ class TrajoptMPCReference:
         return rho, drho
 
     def check_for_exit_or_error(self, error: bool, delta_J: float, iteration: int, rho: float, drho: float, options):
-        print("check_for_exit_or_error")
         self.set_default_options(options)
         exit_flag = False
         if error:
-            print("    Error")
             drho = max(drho*options['rho_factor_SQP_DDP'], options['rho_factor_SQP_DDP'])
             rho = max(rho*drho, options['rho_min_SQP_DDP'])
             if rho > options['rho_max_SQP_DDP']:
@@ -301,15 +296,11 @@ class TrajoptMPCReference:
                     print("Exiting for max_rho")
                 exit_flag = True
         elif delta_J < options['exit_tolerance_SQP_DDP']:
-            print("    delta_J<exit_tolerance_SQP_DDP")
-
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Exiting for exit_tolerance_SQP_DDP")
             exit_flag = True
         
         if iteration == options['max_iter_SQP_DDP'] - 1:
-            print("    max iteration inner loop")
-    
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Exiting for max_iter")
             exit_flag = True
@@ -318,19 +309,16 @@ class TrajoptMPCReference:
         return exit_flag, iteration, rho, drho
 
     def check_and_update_soft_constraints(self, x: np.ndarray, u: np.ndarray, iteration: int, options):
-        print("check_and_update_soft_constraints")
         exit_flag = False
         # check for exit for constraint convergence
         max_c = self.other_constraints.max_soft_constraint_value(x,u)
         if max_c < options['exit_tolerance_softConstraints']:
-            print("      max_c<exit_tolerance_softConstraints")
 
             if options['DEBUG_MODE_Soft_Constraints']:
                 print("Exiting for Soft Constraint Convergence")
             exit_flag = True
         # check for exit for iterations
         if iteration == options['max_iter_softConstraints'] - 1:
-            print("      max iteration soft consta")
 
             if options['DEBUG_MODE_Soft_Constraints']:
                 print("Exiting for Soft Constraint Max Iters")
@@ -369,7 +357,6 @@ class TrajoptMPCReference:
         # Start the main loops (soft constraint outer loop)
         soft_constraint_iteration = 0
         while 1:
-            print("outer loop")
 
             # Initialize the QP solve
             J = 0
@@ -384,9 +371,7 @@ class TrajoptMPCReference:
             # L1 merit function with balanced J and c
             mu = J/c if c != 0 else 10
             mu = 10
-            print("type J: ", J)
-            print("type mu: ", type(mu*c))
-            print("type c :", c)
+
             merit = J + mu*c
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Initial Cost, Constraint Violation, Merit Function: ", J, c, merit)
@@ -401,8 +386,6 @@ class TrajoptMPCReference:
                 #
                 # Solve QP to get step direction
                 #
-                print("main loop")
-                print("Iteration: ", iteration)
 
                 if LINEAR_SYSTEM_SOLVER_METHOD == SQPSolverMethods.N: # standard backslash
                     dxul = self.solveKKTSystem(x, u, xs, N, dt, rho, options_linSys)
@@ -435,7 +418,6 @@ class TrajoptMPCReference:
                     #
                     # Apply the update
                     #
-                    print("inner loop")
 
                     x_new = copy.deepcopy(x)
                     u_new = copy.deepcopy(u)

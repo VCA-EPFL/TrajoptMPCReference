@@ -35,9 +35,9 @@ QF=np.array([[100.0, 0.0, 0.0, 0.0],
  [0.0, 0.0, 0.0, 100.0]])
 R=np.array([[0.1, 0.0],
  [0.0, 0.1]])
-xg= np.array([-1.,0.1])
-cost=ArmCost(Q,QF,R,xg)
-# cost=UrdfCost(plant,Q,QF,R,xg)
+xg= np.array([0.1, 0.1, 0.,0.])
+#cost=ArmCost(Q,QF,R,xg)
+cost=UrdfCost(plant,Q,QF,R,xg)
 
 
 
@@ -59,10 +59,12 @@ soft_constraints.set_torque_limits([7.0],[-7.0],"ACTIVE_SET")
 
 options = {"expected_reduction_min_SQP_DDP":-100, "display": False} # needed for hard_constraints - TODO debug why
 
-
+t1 = time.time()
 # #cProfile.run('runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)', sort='cumtime')
 runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)
+t2 = time.time()
 
+print(f"It took {t2-t1:.2f} seconds to compute")
 
 # current_frame = inspect.currentframe()
 # innerframes=inspect.getinnerframes(current_frame)
@@ -70,7 +72,7 @@ runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver
 
 # runMPCExample(plant, cost, hard_constraints, soft_constraints, N, dt, mpc_solver_methods, options)
 
-csv_file_path = 'hessian.csv'
-with open(csv_file_path, 'w', newline='\n') as file:
-    csv_writer = csv.writer(file)
-    csv_writer.writerows(matrix_.operation_history)
+# csv_file_path = 'hessian.csv'
+# with open(csv_file_path, 'w', newline='\n') as file:
+#     csv_writer = csv.writer(file)
+#     csv_writer.writerows(matrix_.operation_history)

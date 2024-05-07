@@ -18,7 +18,7 @@ options['RETURN_TRACE_SQP']=True
 plant = URDFPlant(options=options)
 
 
-N = 5
+N = 10
 dt = 0.1
 
 
@@ -28,6 +28,8 @@ R = np.diag([0.1, 0.1])
 xg= np.array([0.1,0.1,0.,0.])
 cost=UrdfCost(plant,Q,QF,R,xg)
 # cost=QuadraticCost(Q,QF,R,xg)
+# cost=ArmCost(Q,QF,R,xg)
+
 
 
 
