@@ -298,16 +298,18 @@ class URDFPlant(TrajoptPlant):
 		try:
 			print("trying")
 			self.robot = parser.parse(options['path_to_urdf'])
-		except (URDFParsingError, FileNotFoundError):
+			if(self.robot is None):
+				print("None")
+		except :
 			print("error1")
 			try:
 				self.robot = parser.parse('examples/2_link.urdf')
-			except (URDFParsingError, FileNotFoundError):
+			except :
 				print("error2")
 
 				try:
 					self.robot = parser.parse('2_link.urdf')
-				except (URDFParsingError, FileNotFoundError):
+				except :
 					print("error3")
 
 					raise ValueError("Failed to parse URDF file at the given path.")

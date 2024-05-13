@@ -11,7 +11,7 @@ sqp_solver_methods = [SQPSolverMethods.PCG_SS]#["N", "S", "PCG-J", "PCG-BJ", "PC
 mpc_solver_methods = [MPCSolverMethods.QP_PCG_SS] #["iLQR", "QP-N", "QP-S", "QP-PCG-J", "QP-PCG-BJ", "QP-PCG-SS"]
 
 options= {}
-options['path_to_urdf'] = '/home/marguerite/Documents/lab/TrajoptMPCReference/examples/2_link.urdf'
+options['path_to_urdf'] = '/home/marguerite/Documents/lab/TrajoptMPCReference/examples/arm.urdf'
 plant = URDFPlant(options=options)
 
 
@@ -64,7 +64,7 @@ def parallel_tests( xgs: np.array, Ns:np.array):
 
 # Sweep feasible_set 
 max_radius=2
-n=10
+n=20
 xs = np.linspace(-max_radius, max_radius, n)
 ys = np.linspace(-max_radius, max_radius, n)
 xgs=[[x,y, 0, 0] for x in xs for y in ys] # Cartesian coordinates 
@@ -76,7 +76,7 @@ theta_grid = np.arctan2(y_grid, x_grid)
 circle_mask = radius_grid <= max_radius
 
 #Sweep N
-Ns=[5,10]#,15,20,30,40,50] 
+Ns=[5,10,15,20,30,40,50] 
 
 results_N, results_xg = parallel_tests(xgs, Ns)
 #results_N = [(24.952503303999947, np.array([-0.0875,0.9 , -0.0152, 0.])), (154.61594967700012, np.array([-0.0169, 0.9 , -0.0013,  0. ]))]

@@ -16,7 +16,9 @@ sqp_solver_methods = [SQPSolverMethods.PCG_SS] #["N", "S", "PCG-J", "PCG-BJ", "P
 mpc_solver_methods = [MPCSolverMethods.QP_PCG_SS] #["iLQR", "QP-N", "QP-S", "QP-PCG-J", "QP-PCG-BJ", "QP-PCG-SS"]
 
 options= {}
-options['path_to_urdf'] = '/home/marguerite/Documents/lab/TrajoptMPCReference/examples/2_link.urdf'
+options['path_to_urdf'] = '/home/marguerite/Documents/lab/TrajoptMPCReference/examples/arm.urdf'
+# options['path_to_urdf'] = '/../Documents/lab/TrajoptMPCReference/examples/2_link.urdf'
+
 plant = URDFPlant(options=options)
 
 
@@ -36,8 +38,8 @@ QF=np.array([[100.0, 0.0, 0.0, 0.0],
 R=np.array([[0.1, 0.0],
  [0.0, 0.1]])
 xg= np.array([0.1, 0.1, 0.,0.])
-#cost=ArmCost(Q,QF,R,xg)
-cost=UrdfCost(plant,Q,QF,R,xg)
+cost=ArmCost(Q,QF,R,xg,simplified_hessian=True)
+# cost=UrdfCost(plant,Q,QF,R,xg)
 
 
 
