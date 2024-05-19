@@ -9,6 +9,7 @@
     <axis xyz="0 0 1"/>
   </joint>
   <link name="link1">
+    <origin rpy="1.5707963267948966 0 0" xyz="0 0.5 0"/>
     <inertial>
       <origin rpy="1.5707963267948966 0 0" xyz="0 0.5 0"/>
       <mass value="0.1"/>
@@ -22,6 +23,7 @@
     <axis xyz="0 0 1"/>
   </joint>
   <link name="link2">
+    <origin rpy="1.5707963267948966 0 0" xyz="0 0.5 0"/>
     <inertial>
       <origin rpy="1.5707963267948966 0 0" xyz="0 0.5 0"/>
       <mass value="0.1"/>

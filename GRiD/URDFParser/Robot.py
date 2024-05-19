@@ -140,7 +140,10 @@ class Robot:
         return {joint.name:joint for joint in self.joints}
 
     def get_joints_by_parent_name(self, parent_name):
-        return list(filter(lambda fjoint: fjoint.parent == parent_name, self.joints))
+        
+        # return[element for element in self.joints if element.parent == 'base_link']
+
+        return list(filter(lambda fjoint: fjoint.parent== parent_name[0] or fjoint.parent== parent_name, self.joints))
 
     def get_joints_by_child_name(self, child_name):
         return list(filter(lambda fjoint: fjoint.child == child_name, self.joints))
@@ -166,7 +169,7 @@ class Robot:
         return self.next_none(filter(lambda flink: flink.lid == lid, self.links))
 
     def get_link_by_name(self, name):
-        return self.next_none(filter(lambda flink: flink.name == name, self.links))
+        return self.next_none(filter(lambda flink: flink.name == name[0] or flink.name == name, self.links))
 
     def get_links_by_bfs_level(self, level):
         return list(filter(lambda flink: flink.bfs_level == level, self.links))

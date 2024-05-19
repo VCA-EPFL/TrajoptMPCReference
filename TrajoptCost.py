@@ -28,6 +28,10 @@ class QuadraticCost(TrajoptCost):
 		self.increaseCount_Q = 0
 		self.increaseCount_QF = 0
 		self.QF_start = QF_start
+		self.saved_cost=[]
+		self.saved_grad=[]
+		self.saved_hess=[]
+		
 
 	def get_currQ(self, u = None, timestep = None):
 		last_state = isinstance(u,type(None))
@@ -44,6 +48,7 @@ class QuadraticCost(TrajoptCost):
 		cost = 0.5*np.matmul(delta_x.transpose(),np.matmul(currQ,delta_x))
 		if not isinstance(u, type(None)):
 			cost += 0.5*np.matmul(u.transpose(),np.matmul(self.R,u))
+		self.saved_cost.append([cost])
 		return cost
 
 	def gradient(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -52,10 +57,12 @@ class QuadraticCost(TrajoptCost):
 		top = np.matmul(delta_x.transpose(),currQ)
 
 		if u is None:
-			return top
+			grad= top
 		else:
 			bottom = np.matmul(u.transpose(),self.R)
-			return np.hstack((top,bottom))
+			grad = np.hstack((top,bottom))
+		self.saved_grad.append(grad)
+		return grad
 
 	def hessian(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
 		nx = self.Q.shape[0]
@@ -63,11 +70,13 @@ class QuadraticCost(TrajoptCost):
 		currQ = self.get_currQ(u,timestep)
 
 		if u is None:
-			return currQ
+			hess= currQ
 		else:
 			top = np.hstack((currQ,np.zeros((nx,nu))))
 			bottom = np.hstack((np.zeros((nu,nx)),self.R))
-			return np.vstack((top,bottom))
+			hess= np.vstack((top,bottom))
+		self.saved_hess.append(hess)
+		return hess
 
 	def increase_QF(self, multiplier: float = 2.0):
 		self.QF *= multiplier
@@ -121,6 +130,9 @@ class ArmCost(TrajoptCost):
 		self.hess_control_off=self.symbolic_hessian(control=False)
 		self.hess_control_in_eval=self.symbolic_hessian_eval(control=True)
 		self.hess_control_off_eval=self.symbolic_hessian_eval(control=False)
+		self.saved_cost=[]
+		self.saved_grad=[]
+		self.saved_hess=[]
 
 	# Is used by the gradient to find the symbolic derivative
 	def symbolic_cost(self, control=True):
@@ -194,7 +206,7 @@ class ArmCost(TrajoptCost):
 			cost_value=self.cost_control_off_eval(x[0],x[1],x[2],x[3],currQ,self.xg)
 		else:
 			cost_value=self.cost_control_in_eval(x[0],x[1],x[2],x[3],currQ,self.R,u[0],u[1],self.xg)
-
+		self.saved_cost.append(cost_value)
 		return cost_value
 		
 	# Is used by the hessian to find the symbolic derivative of the gradient
@@ -235,6 +247,7 @@ class ArmCost(TrajoptCost):
 		else:
 			symbolic_grad=self.grad_control_in_eval
 			gradient_val= symbolic_grad(x[0], x[1],x[2], x[3],currQ, self.R, u[0], u[1])
+		self.saved_grad.append(gradient_val)
 		return gradient_val
 		
 				# def gradient(self,x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -279,18 +292,17 @@ class ArmCost(TrajoptCost):
 		currQ = self.get_currQ(u,timestep)
 		if (self.simplified_hess):
 			grad= self.gradient(x,u)
-			print("gradient", grad)
-			print("hessian", grad.transpose()@grad)
-			return grad.transpose()@grad
+			hessian_val=grad.transpose()@grad
 		else:
 			hessian=self.hess_control_in
 			if u is None:
-				symbolic_hess=self.hess_control_off_eval #ready to evaluate version
+				symbolic_hess=self.hess_control_off_eval #ready to evaluate cost
 				hessian_val= symbolic_hess(x[0], x[1],x[2], x[3],currQ, self.xg)
 			else:
 				symbolic_hess=self.hess_control_in_eval
 				hessian_val= symbolic_hess(x[0], x[1],x[2], x[3], u[0], u[1],currQ, self.R, self.xg)
-			return hessian_val
+		self.saved_hess.append(hessian_val)
+		return hessian_val
 		
 					# def hessian(self,x: np.ndarray, u: np.ndarray = None, timestep: int = None):
 					# 	currQ = self.get_currQ(u,timestep)
@@ -440,7 +452,7 @@ class NumericalCost(TrajoptCost):
 		state=np.concatenate([x, u])
 		grad = np.zeros_like(state)
 		for i in range(len(state)):
-			old_value = state[i])
+			old_value = state[i]
 			state[i] = old_value + h
 			fxh1 = f(state[:4],state[4:])
 			state[i] = old_value - h

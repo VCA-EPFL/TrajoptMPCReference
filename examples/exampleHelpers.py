@@ -24,33 +24,34 @@ def joint_angles_to_ee_pos(l1:float,l2:float,state: np.ndarray):
 	return posx,posy
 
 
-def display(x: np.ndarray, x_lim: List[float] = [-20, 20], y_lim: List[float] = [-20, 20], title: str = ""):
+def display(x: np.ndarray, x_lim: List[float] = [-2.5, 2.5], y_lim: List[float] = [-2.5, 2.5], title: str = ""):
+	print("display")
 	fig = plt.figure()
 	ax = fig.add_subplot(111)
-	line1, = ax.plot([0, 5, 10], [0, 5, 10], 'b-')
+	# line1, = ax.plot([0, 5, 10], [0, 5, 10], 'b-')
+	line1, = ax.plot([0, 0, 0], [0, 1, 2], 'b-')
 	ax.set_xlim(x_lim)
 	ax.set_ylim(y_lim)
 	# set suptitle as title
 	fig.suptitle(title)
 	N = x.shape[1]
-
+	type_cost=sys.argv[1]
 	for k in range(N):
-		# x=np.cos(x[0,k]+x[1,k])+np.cos(x[0,k])
-		# y=np.sin(x[0,k]+x[1,k])+np.sin(x[0,k])
-		# print("State at time step ", k, " is: x: ", x, "y: ",y)
-
-
 		print("State at time step ", k, " is: ", x[:,k])
+		if type_cost in ['urdf','sym']:
+			x=-np.sin(x[0,k]+x[1,k])-np.sin(x[0,k])
+			y=np.cos(x[0,k]+x[1,k])+np.cos(x[0,k])
+			print("End effector postition at time step ", k, " is x: ", x, ", y: ", y)
 
-		
+
 		# x[:,k] is the state at time step k
 		# the first number is the angle of the first joint
 		# the second number is the angle of the second joint
 		# draw the line with a length of 5
 		# add 90 degrees to the angle to make it point up
 		first_point = [0, 0]
-		second_point = [np.cos(x[0,k]-np.pi/2), np.sin(x[0,k]-np.pi/2)]
-		third_point = [second_point[0] + np.cos(x[0,k]+x[1,k]-np.pi/2), second_point[1] + np.sin(x[0,k]+x[1,k]-np.pi/2)]
+		second_point = [-np.sin(x[0,k]), np.cos(x[0,k])]
+		third_point = [second_point[0] - np.sin(x[0,k]+x[1,k]), second_point[1] + np.cos(x[0,k]+x[1,k])]
 		line1.set_xdata([first_point[0], second_point[0], third_point[0]])
 		line1.set_ydata([first_point[1], second_point[1], third_point[1]])
 		plt.title("Time Step: " + str(k))
@@ -68,6 +69,10 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		print("-----------------------------")
 		print("Solving with method: ", solver)
 
+
+		#C0
+		saved_J=[]
+		#C1
 		nq = trajoptMPCReference.plant.get_num_pos()
 		nv = trajoptMPCReference.plant.get_num_vel()
 		nx = nq + nv
@@ -83,29 +88,24 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 
 		
 
-		# if options["display"]:
-		# 	display(x, title="SQP Solver Method: " + solver.name)
+		if options["display"]:
+			display(x, title="SQP Solver Method: " + solver.name)
 
 		# print("Final State Trajectory")
 		# print(x)
 		# print("Final Control Trajectory")
 		# print(u)
 		J = 0
+		# Cost for last iteration/trajectory, sum over the horizon
 		for k in range(N-1):
 			J += trajoptMPCReference.cost.value(x[:,k], u[:,k])
+			print("x: ", x[:,k])
+			saved_J.append([trajoptMPCReference.cost.value(x[:,k], u[:,k])])
 		J += trajoptMPCReference.cost.value(x[:,N-1], None)
+		saved_J.append([trajoptMPCReference.cost.value(x[:,N-1], None)])
+
 		print("Cost [", J, "]")
 		print("Final State Error vs. Goal")
-		
-		# dx=[]
-		# for i in range(x.shape[1]):
-		# 	dx.append(trajoptMPCReference.cost.delta_x(x[:,i]))
-			
-		# print("dx\n",dx)
-		# file_path = "delta_x.csv"
-		# with open(file_path, "w", newline="") as csv_file:
-		# 	writer = csv.writer(csv_file)
-		# 	writer.writerows(dx)
 
 
 		if isinstance(trajoptMPCReference.cost,UrdfCost):
@@ -113,22 +113,9 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 
 		if isinstance(trajoptMPCReference.cost,QuadraticCost):
 			error=x[:,-1] - trajoptMPCReference.cost.xg
-			
-		if isinstance(trajoptMPCReference.cost,ArmCost):
-			posx,posy=joint_angles_to_ee_pos(trajoptMPCReference.cost.l1,trajoptMPCReference.cost.l2,x)
-		 	# state, _ =trajoptMPCReference.cost.symbolic_cost_eval()
-			error_x=posx-np.array(trajoptMPCReference.cost.xg[0])
-			error_y=posy-np.array(trajoptMPCReference.cost.xg[1])
-			error= 0
-			print("Position in x")
-			print(posx)
-			print("Position in y")
-			print(posy)
-			print("Type x: ", type(x))
-			
 
-		return t2[0]-t1[0], error 
-		#np.linalg.norm(error[:2])
+
+		return saved_J
 
 
 	
@@ -146,7 +133,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	
 	trajoptMPCReference = TrajoptMPCReference(plant, cost)
 	
-	run_time, error=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
+	saved_J=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
 	# print("---------------------------------")
@@ -164,8 +151,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	# runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
-	return run_time, error
-	#return error
+	return saved_J
 
 def runSolversMPC(trajoptMPCReference, N, dt, solver_methods, options = {}):
 	for solver in solver_methods:

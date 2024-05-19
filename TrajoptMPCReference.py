@@ -60,7 +60,7 @@ class TrajoptMPCReference:
         options.setdefault('RETURN_TRACE_linSys', False)
         # DDP/SQP options
         options.setdefault('exit_tolerance_SQP_DDP', 1e-6)
-        options.setdefault('max_iter_SQP_DDP', 50)
+        options.setdefault('max_iter_SQP_DDP', 100)
         options.setdefault('DEBUG_MODE_SQP_DDP', False)
         options.setdefault('alpha_factor_SQP_DDP', 0.5)
         options.setdefault('alpha_min_SQP_DDP', 0.005)
@@ -202,6 +202,7 @@ class TrajoptMPCReference:
             for k in range(N-1):
                 J += self.other_constraints.value_soft_constraints(x[:,k], u[:,k], k)
             J += self.other_constraints.value_soft_constraints(x[:,N-1], timestep = N-1)
+        
         return J
 
     def solveKKTSystem(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float, rho: float = 0.0, options = {}):
