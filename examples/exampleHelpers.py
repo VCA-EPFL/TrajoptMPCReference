@@ -38,11 +38,10 @@ def display(x: np.ndarray, x_lim: List[float] = [-2.5, 2.5], y_lim: List[float] 
 	type_cost=sys.argv[1]
 	for k in range(N):
 		print("State at time step ", k, " is: ", x[:,k])
-		if type_cost in ['urdf','sym']:
-			x=-np.sin(x[0,k]+x[1,k])-np.sin(x[0,k])
-			y=np.cos(x[0,k]+x[1,k])+np.cos(x[0,k])
-			print("End effector postition at time step ", k, " is x: ", x, ", y: ", y)
-
+		# if type_cost in ['urdf','sym']:
+		# 	x=-np.sin(x[0,k]+x[1,k])-np.sin(x[0,k])
+		# 	y=np.cos(x[0,k]+x[1,k])+np.cos(x[0,k])
+		# 	print("End effector postition at time step ", k, " is x: ", x, ", y: ", y)
 
 		# x[:,k] is the state at time step k
 		# the first number is the angle of the first joint
@@ -86,15 +85,16 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		x, u = trajoptMPCReference.SQP(x, u, N, dt, LINEAR_SYSTEM_SOLVER_METHOD = solver, options = options)
 		t2 = time.perf_counter(), time.process_time()
 
-		
+		# Save state for display
+		type_cost=sys.argv[1]
+		csv_file_path = f'data/{type_cost}/final_state.csv'
+		with open(csv_file_path, 'w', newline='\n') as file:
+			csv_writer = csv.writer(file)
+			csv_writer.writerows(x)
 
-		if options["display"]:
-			display(x, title="SQP Solver Method: " + solver.name)
+		# if options["display"]:
+		# 	display(x, title="SQP Solver Method: " + solver.name)
 
-		# print("Final State Trajectory")
-		# print(x)
-		# print("Final Control Trajectory")
-		# print(u)
 		J = 0
 		# Cost for last iteration/trajectory, sum over the horizon
 		for k in range(N-1):
