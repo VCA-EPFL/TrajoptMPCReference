@@ -60,7 +60,7 @@ elif(type_cost == 'quadratic') :
     xg= np.array([0.,1.57, 0.,0.])
     cost=QuadraticCost(Q,QF,R,xg)
 elif(type_cost == 'urdf') :
-    xg= np.array([-1, 1, 0.,0.])
+    xg= np.array([-1., 1.5, 0.,0.])
     cost=UrdfCost(plant,Q,QF,R,xg)
 else:
     raise ValueError("Cost argument must be quadratic, urdf or sym")
@@ -76,7 +76,7 @@ options = {"expected_reduction_min_SQP_DDP":-100, "display": True} # needed for 
 
 t1 = time.time()
 # #cProfile.run('runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)', sort='cumtime')
-saved_J= runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)
+runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)
 t2 = time.time()
 
 print(f"It took {t2-t1:.2f} seconds to compute")
@@ -87,7 +87,7 @@ print(f"It took {t2-t1:.2f} seconds to compute")
 
 # runMPCExample(plant, cost, hard_constraints, soft_constraints, N, dt, mpc_solver_methods, options)
 
-csv_file_path = f'data/{type_cost}/J.csv'
-with open(csv_file_path, 'w', newline='\n') as file:
-    csv_writer = csv.writer(file)
-    csv_writer.writerows(saved_J)
+# csv_file_path = f'data/{type_cost}/J.csv'
+# with open(csv_file_path, 'w', newline='\n') as file:
+#     csv_writer = csv.writer(file)
+#     csv_writer.writerows(saved_J)

@@ -207,7 +207,7 @@ class ArmCost(TrajoptCost):
 		else:
 			cost_value=self.cost_control_in_eval(x[0],x[1],x[2],x[3],currQ,self.R,u[0],u[1],self.xg)
 		self.saved_cost.append(cost_value)
-		return cost_value
+		return cost_value[0][0]
 		
 	# Is used by the hessian to find the symbolic derivative of the gradient
 	def symbolic_gradient(self,control=True):
@@ -248,7 +248,7 @@ class ArmCost(TrajoptCost):
 			symbolic_grad=self.grad_control_in_eval
 			gradient_val= symbolic_grad(x[0], x[1],x[2], x[3],currQ, self.R, u[0], u[1])
 		self.saved_grad.append(gradient_val)
-		return gradient_val
+		return gradient_val[0]
 		
 				# def gradient(self,x: np.ndarray, u: np.ndarray = None, timestep: int = None):
 

@@ -8,7 +8,7 @@ plant=sys.argv[1]
 
 df = pd.read_csv(f'data/{plant}/J.csv', header=None, names=['cost'])
 if plant=="sym":
-   cost_values = df['cost'].apply(lambda x: float(x.strip('[]')))
+   cost_values = df['cost']#.apply(lambda x: float(x.strip('[]')))
 else:
     cost_values = df['cost']
 plt.figure(figsize=(20, 6))
@@ -16,7 +16,7 @@ sns.scatterplot(x=range(len(cost_values)), y=cost_values)
 plt.title('Scatter Plot of Cost Values for last iteration')
 plt.xlabel('N')
 plt.ylabel('Cost')
-plt.ylim(0,2)
+# plt.ylim(0,3)
 
 plt.savefig(f'results/{plant}/J')
 
