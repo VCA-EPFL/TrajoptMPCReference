@@ -91,24 +91,17 @@ class RBDReference:
     """
     def end_effector_positions(self, q, offsets = [np.matrix([[0,1,0,1]])]):
 
-
-        # do for each branch in the chain
         eePos_arr = []
 
         for jid in self.robot.get_leaf_nodes():
 
-            # chain up the transforms (version 1 for starting from the root)
-            # first get the joints in the chain
             jidChain = sorted(self.robot.get_ancestors_by_id(jid))
             jidChain.append(jid)
-            # then chain them up
             Xmat_hom = np.eye(4)
             for ind in jidChain:
                 currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
                 Xmat_hom = np.matmul(Xmat_hom,currX)
 
-            
-            # chain up the transforms (version 2 for starting from the leaf)
             currId = jid
             Xmat_hom = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
             currId = self.robot.get_parent_id(currId)
@@ -117,25 +110,21 @@ class RBDReference:
                 Xmat_hom = np.matmul(currX,Xmat_hom)
                 currId = self.robot.get_parent_id(currId)
 
-            # Then extract the end-effector position with the given offset(s)
-            # TODO update for multiple offsets
-
-            # xyz position is easy
-            
-            
             eePos_xyz1 = Xmat_hom * offsets[0].transpose()
 
-            # roll pitch yaw is a bit more difficult
-            eePos_roll = np.arctan2(Xmat_hom[2,1],Xmat_hom[2,2])
-            pitch_temp = np.sqrt(Xmat_hom[2,2]*Xmat_hom[2,2] + Xmat_hom[2,1]*Xmat_hom[2,1])
-            eePos_pitch = np.arctan2(-Xmat_hom[2,0],pitch_temp)
-            eePos_yaw = np.arctan2(Xmat_hom[1,0],Xmat_hom[0,0])
-            eePos_rpy = np.matrix([[eePos_roll,eePos_pitch,eePos_yaw]])
+            # # roll pitch yaw is a bit more difficult
+            # eePos_roll = np.arctan2(Xmat_hom[2,1],Xmat_hom[2,2])
+            # pitch_temp = np.sqrt(Xmat_hom[2,2]*Xmat_hom[2,2] + Xmat_hom[2,1]*Xmat_hom[2,1])
+            # eePos_pitch = np.arctan2(-Xmat_hom[2,0],pitch_temp)
+            # eePos_yaw = np.arctan2(Xmat_hom[1,0],Xmat_hom[0,0])
+            # eePos_rpy = np.matrix([[eePos_roll,eePos_pitch,eePos_yaw]])
 
-            # then stack it up!
-            eePos = np.vstack((eePos_xyz1[:3,:],eePos_rpy.transpose()))
-            eePos_arr.append(eePos)
-        return eePos_arr
+            # # then stack it up!
+            # eePos = np.vstack((eePos_xyz1[:3,:],eePos_rpy.transpose()))
+            # eePos_arr.append(eePos)
+            eePos_arr.append(eePos_xyz1[:2,:])
+
+        return eePos_arr[0]
 
     """
     End Effectors Position Gradients
@@ -146,6 +135,7 @@ class RBDReference:
         else:
             obj = np.hstack((obj,col))
         return obj
+    #NOT USED
     def symbolic_jacobian(self,offsets = [np.matrix([[0,1,0,1]])]):
         n = self.robot.get_num_joints()
         q_symbols = [sp.Symbol('q{}'.format(i)) for i in range(1, n+1)]
@@ -186,62 +176,146 @@ class RBDReference:
             deePos_arr.append(deePos)
         J=deePos_arr[0][:2,:2]
         return J
-    
-#Use another function to retrieve numerical value of J => use ee_grad => may be more efficient ?
-    
-#Maybe encode offset somewhere 
+        
+    #NOT USED
     def jacobian_grad_func(self,offsets = [np.matrix([[0,1,0,1]])]):
         n = self.robot.get_num_joints()
         q_symbols = [sp.Symbol('q{}'.format(i)) for i in range(1, n+1)]
         J=self.symbolic_jacobian(offsets)
         #need symbolic expression to diff
         dJdq = [[sp.diff(J[i, j], q) for q in q_symbols] for i in range(J.shape[0]) for j in range(J.shape[1])]
-
         return sp.lambdify(q_symbols,dJdq, "numpy")
+
+    # Commented part => product of Xmat and ddXmat
+    # dJdq has same elements as J => less compute
+    def dJdq(self,q ,offsets = [np.matrix([[0,1,0,1]])]):
+        # n = self.robot.get_num_joints()
+        # dJdq=np.zeros((2*n,n))
+        # jacobian_grad = []
+        # for jid in self.robot.get_leaf_nodes():
+        #     jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+        #     jidChain.append(jid)
+        #     deePos = None
+        #     for dind in range(n):
+        #         if dind not in jidChain:
+        #             deePos_col = np.zeros((6,1))
+        #             deePos = self.equals_or_hstack(deePos,deePos_col)
+        #         else:
+        #             Xmat_hom = np.eye(4)
+        #             for ind in jidChain:
+        #                 if ind == dind: # use second derivative
+        #                     currX = self.robot.get_ddXmat_hom_Func_by_id(ind)(q[ind])
+        #                 else: # use normal transform
+        #                     currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+        #                 Xmat_hom = np.matmul(Xmat_hom,currX)
+        #             deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+        #             deePos_col = deePos_xyz1#[:3,:]
+        #             deePos = self.equals_or_hstack(deePos,deePos_col)
+        #     jacobian_grad.append(deePos)
+
+        # dJdq[0,:]= jacobian_grad[0][0,:n]
+        # dJdq[1,:]= [dJdq[0,1]]*n
+        # dJdq[2,:]= jacobian_grad[0][1,:2]
+        # dJdq[3,:]= [dJdq[2,1]]*n
+        # return dJdq
+
+        # J_grad[0,:]= jacobian_grad[0][0,:n]
+        # J_grad[1,:]= [J_grad[0,1],J_grad[0,1]]
+        # J_grad[2,:]= jacobian_grad[0][1,:2]
+        # J_grad[3,:]= [J_grad[2,1],J_grad[2,1]]
+        # return J_grad
+
+        n = self.robot.get_num_joints()
+        dJdq=np.zeros((2*n,n))
+        J=self.Jacobian(q,offsets)
+        dJdq[0,:] = -J[1,:]
+        dJdq[1,:] = [-J[1,1],-J[1,1]]
+        dJdq[2,:] = -J[0,:]
+        dJdq[3,:] = [J[0,1],J[0,1]]
+        return dJdq
+
+
+
+
+    # Commented part => product of Xmat and ddXmat
+    # dJdq has same elements as J => less compute
+    def d2Jdq2(self,q ,offsets = [np.matrix([[0,1,0,1]])]):
+        # n = self.robot.get_num_joints()
+        # ddJdq=np.zeros((2*n,n))
+        # J_list = []
+        # for jid in self.robot.get_leaf_nodes():
+        #     jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+        #     jidChain.append(jid)
+        #     deePos = None
+        #     for dind in range(n):
+        #         if dind not in jidChain:
+        #             deePos_col = np.zeros((6,1))
+        #             deePos = self.equals_or_hstack(deePos,deePos_col)
+        #         else:
+        #             Xmat_hom = np.eye(4)
+        #             for ind in jidChain:
+                    
+        #                 if ind == dind: # use second derivative
+        #                     currX = self.robot.get_dddXmat_hom_Func_by_id(ind)(q[ind])
+        #                 else: # use normal transform
+        #                     currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+        #                 Xmat_hom = np.matmul(Xmat_hom,currX)
+        #             deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+        #             deePos_col = deePos_xyz1[:3,:]
+        #             deePos = self.equals_or_hstack(deePos,deePos_col)
+
+        #     J_list.append(deePos)
+        # ddJdq[0,:]= J_list[0][0,:n]
+        # ddJdq[1,:]= [ddJdq[0,1]]*n
+        # ddJdq[2,:]= J_list[0][1,:n]
+        # ddJdq[3,:]= [ddJdq[2,1]]*n
+
+
+        n = self.robot.get_num_joints()
+        ddJdq=np.zeros((2*n,n))
+        J=self.Jacobian(q,offsets) # compute J twice (in dJdq and ddJdq)
+        ddJdq[0,:] = -J[0,:]
+        ddJdq[1,:] = [-J[0,1],-J[0,1]]
+        ddJdq[2,:] = -J[1,:]
+        ddJdq[3,:] = [-J[1,1],-J[1,1]]
+        return ddJdq
+
+    #NOT USED
+    # def jacobian_grad(self,q):
+    #  [q1,q2]=q
+    #  s1=np.sin(q1)
+    #  s2=np.sin(q2)
+    #  c1=np.cos(q1)
+    #  c2=np.cos(q2)
+    #  return np.array([[s1*c2 + s1 + s2*c1, s1*c2 + s2*c1],\
+    #                    [s1*c2 + s2*c1, s1*c2 + s2*c1], \
+    #                    [s1*s2 - c1*c2 - c1, s1*s2 - c1*c2], \
+    #                    [s1*s2 - c1*c2, s1*s2 - c1*c2]])
     
-    def jacobian_grad(self,q):
-     [q1,q2]=q
-     s1=np.sin(q1)
-     s2=np.sin(q2)
-     c1=np.cos(q1)
-     c2=np.cos(q2)
-     return np.array([[s1*c2 + s1 + s2*c1, s1*c2 + s2*c1],\
-                       [s1*c2 + s2*c1, s1*c2 + s2*c1], \
-                       [s1*s2 - c1*c2 - c1, s1*s2 - c1*c2], \
-                       [s1*s2 - c1*c2, s1*s2 - c1*c2]])
-    
+    #d(x,y,vx,vy)/d(q,q_d)
     def jacobian_tot_state(self,q,qd,offsets = [np.matrix([[0,1,0,1]])]):
-        J1=self.end_effector_position_gradients(q,offsets)[0][:2,:2] #Jacobian
-        dJdq=self.jacobian_grad(q)
-        J2=(dJdq@qd).reshape(2,2)
+        n = self.robot.get_num_joints()
+        J1=self.Jacobian(q,offsets)
+        dJdq=self.dJdq(q,offsets)
+        J2=(dJdq@qd).reshape(n,n)
         J_top = np.hstack((J1, np.zeros_like(J1)))
         J_bottom = np.hstack((J2, J1))
         J = np.vstack((J_top, J_bottom))
         return J
-
     
-    def end_effector_position_gradients(self, q, offsets = [np.matrix([[0,1,0,1]])]):
+    #d(x,y)/dq
+    def Jacobian(self, q, offsets = [np.matrix([[0,1,0,1]])]):
         n = self.robot.get_num_joints()
-        # For each branch chain up the transformations across all possible derivatives
-        # Note: if not in branch then 0
-        deePos_arr = []
+        jacobian = []
         for jid in self.robot.get_leaf_nodes():
-            
-            # first get the joints in the chain
             jidChain = sorted(self.robot.get_ancestors_by_id(jid))
             jidChain.append(jid)
-
-            # then compute the gradients
             deePos = None
             for dind in range(n):
-
-                # Note: if not in branch then 0
                 if dind not in jidChain:
                     deePos_col = np.zeros((6,1))
                     deePos = self.equals_or_hstack(deePos,deePos_col)
-                
                 else:
-                    # first chain up the transforms
                     Xmat_hom = np.eye(4)
                     for ind in jidChain:
                         if ind == dind: # use derivative
@@ -249,44 +323,11 @@ class RBDReference:
                         else: # use normal transform
                             currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
                         Xmat_hom = np.matmul(Xmat_hom,currX)
-
-                    # chain up the transforms (version 2 for starting from the leaf)
-                    currId = jid
-                    if currId == dind:
-                        Xmat_hom = self.robot.get_dXmat_hom_Func_by_id(currId)(q[currId])
-                    else:
-                        Xmat_hom = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
-                    currId = self.robot.get_parent_id(currId)
-                    while(currId != -1):
-                        if currId == dind:
-                            currX = self.robot.get_dXmat_hom_Func_by_id(currId)(q[currId])
-                        else:
-                            currX = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
-                        Xmat_hom = np.matmul(currX,Xmat_hom)
-                        currId = self.robot.get_parent_id(currId)
-                    
-                    # Then extract the end-effector position with the given offset(s)
-                    # TODO handle different offsets for different branches
-
-                    # xyz position is easy
                     deePos_xyz1 = Xmat_hom * offsets[0].transpose()
-
-                    # roll pitch yaw is a bit more difficult
-                    # TODO THESE ARE WRONG BECUASE THERE IS CHAIN RULE HERE
-                    # see https://github.com/plancherb1/parallel-DDP/blob/master/plants/dynamics_arm.cuh
-                    # but note the mistake on indexing -- these are the corret indexes
-                    deePos_roll = np.arctan2(Xmat_hom[2,1],Xmat_hom[2,2])
-                    pitch_temp = np.sqrt(Xmat_hom[2,2]*Xmat_hom[2,2] + Xmat_hom[2,1]*Xmat_hom[2,1])
-                    deePos_pitch = np.arctan2(-Xmat_hom[2,0],pitch_temp)
-                    deePos_yaw = np.arctan2(Xmat_hom[1,0],Xmat_hom[0,0])
-                    deePos_rpy = np.matrix([[deePos_roll,deePos_pitch,deePos_yaw]])
-
-                    # then stack it up!
-                    deePos_col = np.vstack((deePos_xyz1[:3,:],deePos_rpy.transpose()))
+                    deePos_col = deePos_xyz1[:3,:]
                     deePos = self.equals_or_hstack(deePos,deePos_col)
-
-            deePos_arr.append(deePos)
-        return deePos_arr
+            jacobian.append(deePos)
+        return jacobian[0][:n,:n]
 
     """
     Recursive Newton-Euler Method is a recursive inverse dynamics algorithm to calculate the forces required for a specified trajectory

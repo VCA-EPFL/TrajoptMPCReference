@@ -2,6 +2,7 @@ import numpy as np
 from sympy import symbols, diff, Matrix, cos, sin, MatrixSymbol, BlockMatrix, lambdify, ccode
 from expressions import *
 from TrajoptPlant import *
+import csv
 
 
 
@@ -126,13 +127,15 @@ class ArmCost(TrajoptCost):
 		self.grad_control_off=self.symbolic_gradient(control=False)
 		self.grad_control_in_eval=self.symbolic_gradient_eval(control=True)
 		self.grad_control_off_eval=self.symbolic_gradient_eval(control=False)
-		self.hess_control_in=self.symbolic_hessian(control=True)
-		self.hess_control_off=self.symbolic_hessian(control=False)
-		self.hess_control_in_eval=self.symbolic_hessian_eval(control=True)
-		self.hess_control_off_eval=self.symbolic_hessian_eval(control=False)
+		if not self.simplified_hess:
+			self.hess_control_in=self.symbolic_hessian(control=True)
+			self.hess_control_off=self.symbolic_hessian(control=False)
+			self.hess_control_in_eval=self.symbolic_hessian_eval(control=True)
+			self.hess_control_off_eval=self.symbolic_hessian_eval(control=False)		
 		self.saved_cost=[]
 		self.saved_grad=[]
 		self.saved_hess=[]
+		self.saved_simple_hess=[]
 
 	# Is used by the gradient to find the symbolic derivative
 	def symbolic_cost(self, control=True):
@@ -198,7 +201,20 @@ class ArmCost(TrajoptCost):
 					# 	else:
 					# 		cost_value=cost_control_in(x[0],x[1],x[2],x[3],u,currQ,self.R,self.xg)
 					# 	return cost_value
-		
+	
+	def current_state(self,x: np.ndarray):
+		[q1,q2,q1_d,q2_d]=x
+		c12 = np.cos(q2+q1)
+		s12 = np.sin(q2+q1)
+		J = Matrix([
+			[-self.l2*c12-self.l1*np.cos(q1), -self.l2*c12],
+			[-self.l2*s12-self.l1*np.sin(q1), -self.l2*s12]
+		])
+		v=J@x[2:4]
+		x= np.array([-self.l2*np.sin(q2+q1)-self.l1*np.sin(q1),\
+					self.l2*np.cos(q2+q1)+self.l1*np.cos(q1)])
+		return np.concatenate((x,v))
+
 	def value(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
 
 		currQ = self.get_currQ(u,timestep)
@@ -206,7 +222,7 @@ class ArmCost(TrajoptCost):
 			cost_value=self.cost_control_off_eval(x[0],x[1],x[2],x[3],currQ,self.xg)
 		else:
 			cost_value=self.cost_control_in_eval(x[0],x[1],x[2],x[3],currQ,self.R,u[0],u[1],self.xg)
-		self.saved_cost.append(cost_value)
+		self.saved_cost.append([cost_value[0][0]])
 		return cost_value[0][0]
 		
 	# Is used by the hessian to find the symbolic derivative of the gradient
@@ -292,7 +308,10 @@ class ArmCost(TrajoptCost):
 		currQ = self.get_currQ(u,timestep)
 		if (self.simplified_hess):
 			grad= self.gradient(x,u)
-			hessian_val=grad.transpose()@grad
+			n=grad.shape[0]
+			grad=grad.reshape((n,1))
+			simplified_hess=grad@grad.transpose()
+			self.saved_simple_hess.append(simplified_hess)
 		else:
 			hessian=self.hess_control_in
 			if u is None:
@@ -301,7 +320,7 @@ class ArmCost(TrajoptCost):
 			else:
 				symbolic_hess=self.hess_control_in_eval
 				hessian_val= symbolic_hess(x[0], x[1],x[2], x[3], u[0], u[1],currQ, self.R, self.xg)
-		self.saved_hess.append(hessian_val)
+			self.saved_hess.append(hessian_val)
 		return hessian_val
 		
 					# def hessian(self,x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -351,7 +370,6 @@ class ArmCost(TrajoptCost):
 class UrdfCost(TrajoptCost):
 
 	def __init__(self,  plant: URDFPlant , Q_in: np.ndarray, QF_in: np.ndarray, R_in: np.ndarray, xg_in: np.ndarray, QF_start = None):
-		
 		self.plant=plant
 		self.Q = Q_in
 		self.QF = QF_in
@@ -360,12 +378,14 @@ class UrdfCost(TrajoptCost):
 		self.increaseCount_Q = 0
 		self.increaseCount_QF = 0
 		self.QF_start = QF_start
-		self.l1=1
-		self.l2=1
-		self.simplified_hess=False
+		self.saved_cost=[]
+		self.saved_grad=[]
+		self.saved_hess=[]
+		self.n=self.plant.get_num_pos() # n joints
+		self.offsets=[np.matrix([[0,1,0,1]])] # May need to be updated if change in URDF
 
 	def compute_J(self,q): # online value of the Jacobian
-		J=self.plant.rbdReference.end_effector_position_gradients(q,offsets = [np.matrix([[0,1,0,1]])])[0][:2,:2]
+		J=self.plant.rbdReference.Jacobian(q,offsets = self.offsets)
 		return J
 			
 	def value(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -374,31 +394,84 @@ class UrdfCost(TrajoptCost):
 		cost = 0.5*np.matmul(dx.transpose(),np.matmul(currQ,dx))
 		if not isinstance(u, type(None)):
 			cost += 0.5*np.matmul(u.transpose(),np.matmul(self.R,u))
+		self.saved_cost.append([cost]) 
 		return cost
 	
 	def delta_x(self, x: np.ndarray):
-		pos = self.plant.rbdReference.end_effector_positions(x[:2],offsets = [np.matrix([[0,1,0,1]])])[0][:2]
-		vel = (self.compute_J(x[:2])@x[2:4]).transpose() # v=J*qd
-		X = np.array(np.vstack((pos,vel))).reshape(4,)
+		pos = self.plant.rbdReference.end_effector_positions(x[:self.n],self.offsets)
+		vel = (self.compute_J(x[:self.n])@x[self.n:]).transpose() # v=J*qd
+		X = np.array(np.vstack((pos,vel))).reshape(2*self.n,)
 		return X - self.xg
 		
 	def gradient(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
 		dx=self.delta_x(x)
 		currQ = self.get_currQ(u,timestep)
-		J_tot=self.plant.rbdReference.jacobian_tot_state(x[:2],x[2:])
-		top=np.array(dx.transpose()@currQ@J_tot).reshape(4,)
+		J_tot=self.plant.rbdReference.jacobian_tot_state(x[:self.n],x[self.n:])
+		top=np.array(dx.transpose()@currQ@J_tot).reshape(2*self.n,)
 		if u is None:
 			grad= top
 		else:
 			bottom = (np.matmul(u.transpose(),self.R))
 			grad= np.hstack((top,bottom))
+		self.saved_grad.append(grad)
 		return grad
 
+	def dJtotdq(self, q: np.ndarray, qd: np.ndarray):
+		dJdq=self.plant.rbdReference.dJdq(q, self.offsets)
+		ddJdq = self.plant.rbdReference.d2Jdq2(q, self.offsets)
+		n=self.n
+		A=np.hstack((dJdq, np.zeros((2*n,n)))).reshape(n, n, 2*n)
+		B= np.hstack((dJdq,ddJdq)).reshape(n, n, 2*n)
+		dJtotdq = np.zeros((2*n, 2*n, 2*n))
+		dJtotdq[0:n, 0:n, :] = A #top left
+		dJtotdq[0:n, n:2*n, :] = np.zeros((n, n, 2*n)) #top right
+		dJtotdq[n:2*n, 0:n, :] = B #bottom left
+		dJtotdq[n:2*n, n:2*n, :] = A #bottom right
+		return dJtotdq
+	
 	def hessian(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
-		grad=self.gradient(x,u)
-		n=grad.shape[0]
-		hess=grad.reshape(n,1)@(grad.reshape(1,n))
+		q=x[:self.n]
+		qd=x[self.n:]
+		nx = self.Q.shape[0]
+		nu = self.R.shape[0]
+		Jtot=self.plant.rbdReference.jacobian_tot_state(q,qd, self.offsets)
+		dJtotdq=self.dJtotdq(q,qd)
+		currQ = self.get_currQ(u,timestep)
+		dx=self.delta_x(x).reshape((2*self.n,1))
+		hess1=((currQ@Jtot).transpose())@Jtot
+		#hess2=(dx.transpose()@currQ@dJtotdq).reshape((4,4))
+		hess_x=hess1 #+hess2
+		# hess_x=np.zeros((4,4))
+		if u is None:
+			hess= hess_x
+		else:
+			top = np.hstack((hess_x,np.zeros((nx,nu))))
+			bottom = np.hstack((np.zeros((nu,nx)),self.R))
+			hess= np.vstack((top,bottom))
+		self.saved_hess.append(hess)
+		# n= 4 if (u is None) else 6
+		# return np.zeros((n,n))
 		return hess
+
+
+	# SIMPLIFIED HESSIAN => DOESN'T WORK
+	# def hessian(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
+	# 	grad=self.gradient(x,u)
+	# 	n=grad.shape[0]
+	# 	hess=grad.reshape(n,1)@(grad.reshape(1,n))
+	# 	self.saved_hess.append(hess)
+	# 	return hess
+
+	# HESSIAN FROM EVALUATION FILE => NOT UP TO DATE BC ROTATION AXIS IN THE URDF HAS CHANGED
+	# def hessian(self,x: np.ndarray, u: np.ndarray = None, timestep: int = None):
+	# 	currQ = self.get_currQ(u,timestep)
+	# 	if u is None:
+	# 		hessian_eval=hessian_cost_off(x[0],x[1],x[2],x[3],currQ,self.xg)
+	# 	else:
+	# 		hessian_eval=hessian_cost_in(x[0],x[1],x[2],x[3],u[0],u[1],currQ,self.R,self.xg)	
+	# 	self.saved_hess.append(hessian_eval)
+	# 	return hessian_eval
+
 		
 	def get_currQ(self, u = None, timestep = None):
 		last_state = isinstance(u,type(None))
