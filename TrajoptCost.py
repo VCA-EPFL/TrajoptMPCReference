@@ -383,9 +383,10 @@ class UrdfCost(TrajoptCost):
 		self.saved_hess=[]
 		self.n=self.plant.get_num_pos() # n joints
 		self.offsets=[np.matrix([[0,1,0,1]])] # May need to be updated if change in URDF
+		self.no_hess=[]
 
 	def compute_J(self,q): # online value of the Jacobian
-		J=self.plant.rbdReference.Jacobian(q,offsets = self.offsets)
+		J=self.plant.rbdReference.Jacobian(q,self.offsets)
 		return J
 			
 	def value(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -400,7 +401,7 @@ class UrdfCost(TrajoptCost):
 	def delta_x(self, x: np.ndarray):
 		pos = self.plant.rbdReference.end_effector_positions(x[:self.n],self.offsets)
 		vel = (self.compute_J(x[:self.n])@x[self.n:]).transpose() # v=J*qd
-		X = np.array(np.vstack((pos,vel))).reshape(2*self.n,)
+		X = np.array(np.vstack((pos,vel))).reshape(4,)
 		return X - self.xg
 		
 	def gradient(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -420,38 +421,49 @@ class UrdfCost(TrajoptCost):
 		dJdq=self.plant.rbdReference.dJdq(q, self.offsets)
 		ddJdq = self.plant.rbdReference.d2Jdq2(q, self.offsets)
 		n=self.n
-		A=np.hstack((dJdq, np.zeros((2*n,n)))).reshape(n, n, 2*n)
-		B= np.hstack((dJdq,ddJdq)).reshape(n, n, 2*n)
-		dJtotdq = np.zeros((2*n, 2*n, 2*n))
-		dJtotdq[0:n, 0:n, :] = A #top left
-		dJtotdq[0:n, n:2*n, :] = np.zeros((n, n, 2*n)) #top right
-		dJtotdq[n:2*n, 0:n, :] = B #bottom left
-		dJtotdq[n:2*n, n:2*n, :] = A #bottom right
+		print("shape dJdq\n", dJdq.shape)
+
+		A=np.hstack((dJdq, np.zeros((2*n,n)))).reshape(2, 2, 2*n)
+		B= np.hstack((dJdq,ddJdq)).reshape(2, 2, 2*n)
+		dJtotdq = np.zeros((4, 4, 2*n))
+		dJtotdq[0:2, 0:2, :] = A #top left
+		dJtotdq[0:2, 2:4, :] = np.zeros((2, n, 2*n)) #top right
+		dJtotdq[2:4, 0:2, :] = B #bottom left
+		dJtotdq[2:4, 2:4, :] = A #bottom right
 		return dJtotdq
 	
 	def hessian(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
-		q=x[:self.n]
-		qd=x[self.n:]
-		nx = self.Q.shape[0]
-		nu = self.R.shape[0]
-		Jtot=self.plant.rbdReference.jacobian_tot_state(q,qd, self.offsets)
-		dJtotdq=self.dJtotdq(q,qd)
-		currQ = self.get_currQ(u,timestep)
-		dx=self.delta_x(x).reshape((2*self.n,1))
-		hess1=((currQ@Jtot).transpose())@Jtot
-		#hess2=(dx.transpose()@currQ@dJtotdq).reshape((4,4))
-		hess_x=hess1 #+hess2
-		# hess_x=np.zeros((4,4))
-		if u is None:
-			hess= hess_x
+		if self.no_hess:
+			n= 2*self.n if (u is None) else 3*self.n
+			return np.zeros((n,n))
 		else:
-			top = np.hstack((hess_x,np.zeros((nx,nu))))
-			bottom = np.hstack((np.zeros((nu,nx)),self.R))
-			hess= np.vstack((top,bottom))
-		self.saved_hess.append(hess)
-		# n= 4 if (u is None) else 6
-		# return np.zeros((n,n))
-		return hess
+			q=x[:self.n]
+			qd=x[self.n:]
+			n=self.n
+			#nx = self.Q.shape[0]
+			#nu = self.R.shape[0]
+			Jtot=self.plant.rbdReference.jacobian_tot_state(q,qd, self.offsets) # size (4,2*n)
+			#dJtotdq=self.dJtotdq(q,qd)
+			currQ = self.get_currQ(u,timestep)
+			dx=self.delta_x(x).reshape((4,1))
+			hess1=((currQ@Jtot).transpose())@Jtot
+			# print("dJtot\n",dJtotdq.shape )
+			# print("currQ\n",currQ.shape )
+			# print("dx\n",dx.shape )
+			#hess2=(currQ@dJtotdq)#.reshape((2*n,2*n))
+			hess_x=hess1 # +hess2
+			# hess_x=np.zeros((4,4))
+			if u is None:
+				hess= hess_x
+			else:
+				top = np.hstack((hess_x,np.zeros((2*n,n))))
+				bottom = np.hstack((np.zeros((n,2*n)),self.R))
+				hess= np.vstack((top,bottom))
+			self.saved_hess.append(hess)
+			return hess
+		
+		
+		
 
 
 	# SIMPLIFIED HESSIAN => DOESN'T WORK

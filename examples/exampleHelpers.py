@@ -79,7 +79,7 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		u = np.zeros((nu,N-1))
 		xs = copy.deepcopy(x[:,0])
 		t1 = time.perf_counter(), time.process_time()
-		x, u , saved_J = trajoptMPCReference.SQP(x, u, N, dt, LINEAR_SYSTEM_SOLVER_METHOD = solver, options = options)
+		x, u  = trajoptMPCReference.SQP(x, u, N, dt, LINEAR_SYSTEM_SOLVER_METHOD = solver, options = options)
 		t2 = time.perf_counter(), time.process_time()
 
 		# Save state for display
@@ -103,20 +103,17 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 
 		print("Cost [", J, "]")
 		print("Final State Error vs. Goal")
-
+		error=0
 
 		if isinstance(trajoptMPCReference.cost,UrdfCost):
 			error=trajoptMPCReference.cost.delta_x(x[:,-1])
 
 		if isinstance(trajoptMPCReference.cost,QuadraticCost):
 			error=x[:,-1] - trajoptMPCReference.cost.xg
+		if isinstance(trajoptMPCReference.cost,ArmCost):
+			error=trajoptMPCReference.cost.current_state(x[:,-1])-trajoptMPCReference.cost.xg
 
-
-		csv_file_path = f'data/{type_cost}/J.csv'
-		with open(csv_file_path, 'w', newline='\n') as file:
-			csv_writer = csv.writer(file)
-			csv_writer.writerows(saved_J)
-
+	return error
 
 	
 		
@@ -133,7 +130,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	
 	trajoptMPCReference = TrajoptMPCReference(plant, cost)
 	
-	saved_J=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
+	error=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
 	# print("---------------------------------")
@@ -151,7 +148,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	# runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
-	return saved_J
+	return error
 
 def runSolversMPC(trajoptMPCReference, N, dt, solver_methods, options = {}):
 	for solver in solver_methods:

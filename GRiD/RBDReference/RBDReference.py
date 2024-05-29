@@ -2,7 +2,7 @@ import numpy as np
 import copy
 import sympy as sp
 np.set_printoptions(precision=4, suppress=True, linewidth = 100)
-
+import time
 class RBDReference:
     def __init__(self, robotObj):
         self.robot = robotObj # instance of Robot Object class created by URDFparser``
@@ -92,9 +92,7 @@ class RBDReference:
     def end_effector_positions(self, q, offsets = [np.matrix([[0,1,0,1]])]):
 
         eePos_arr = []
-
         for jid in self.robot.get_leaf_nodes():
-
             jidChain = sorted(self.robot.get_ancestors_by_id(jid))
             jidChain.append(jid)
             Xmat_hom = np.eye(4)
@@ -111,19 +109,7 @@ class RBDReference:
                 currId = self.robot.get_parent_id(currId)
 
             eePos_xyz1 = Xmat_hom * offsets[0].transpose()
-
-            # # roll pitch yaw is a bit more difficult
-            # eePos_roll = np.arctan2(Xmat_hom[2,1],Xmat_hom[2,2])
-            # pitch_temp = np.sqrt(Xmat_hom[2,2]*Xmat_hom[2,2] + Xmat_hom[2,1]*Xmat_hom[2,1])
-            # eePos_pitch = np.arctan2(-Xmat_hom[2,0],pitch_temp)
-            # eePos_yaw = np.arctan2(Xmat_hom[1,0],Xmat_hom[0,0])
-            # eePos_rpy = np.matrix([[eePos_roll,eePos_pitch,eePos_yaw]])
-
-            # # then stack it up!
-            # eePos = np.vstack((eePos_xyz1[:3,:],eePos_rpy.transpose()))
-            # eePos_arr.append(eePos)
             eePos_arr.append(eePos_xyz1[:2,:])
-
         return eePos_arr[0]
 
     """
@@ -137,7 +123,7 @@ class RBDReference:
         return obj
     #NOT USED
     def symbolic_jacobian(self,offsets = [np.matrix([[0,1,0,1]])]):
-        n = self.robot.get_num_joints()
+        n = self.robot.get_num_joints()  
         q_symbols = [sp.Symbol('q{}'.format(i)) for i in range(1, n+1)]
 
         deePos_arr = []
@@ -175,6 +161,8 @@ class RBDReference:
 
             deePos_arr.append(deePos)
         J=deePos_arr[0][:2,:2]
+
+        print("Sym Jacobian\n", J)
         return J
         
     #NOT USED
@@ -184,6 +172,7 @@ class RBDReference:
         J=self.symbolic_jacobian(offsets)
         #need symbolic expression to diff
         dJdq = [[sp.diff(J[i, j], q) for q in q_symbols] for i in range(J.shape[0]) for j in range(J.shape[1])]
+        print("dJdq sym;\n",dJdq)
         return sp.lambdify(q_symbols,dJdq, "numpy")
 
     # Commented part => product of Xmat and ddXmat
@@ -212,26 +201,32 @@ class RBDReference:
         #             deePos_col = deePos_xyz1#[:3,:]
         #             deePos = self.equals_or_hstack(deePos,deePos_col)
         #     jacobian_grad.append(deePos)
-
         # dJdq[0,:]= jacobian_grad[0][0,:n]
         # dJdq[1,:]= [dJdq[0,1]]*n
         # dJdq[2,:]= jacobian_grad[0][1,:2]
         # dJdq[3,:]= [dJdq[2,1]]*n
-        # return dJdq
-
-        # J_grad[0,:]= jacobian_grad[0][0,:n]
-        # J_grad[1,:]= [J_grad[0,1],J_grad[0,1]]
-        # J_grad[2,:]= jacobian_grad[0][1,:2]
-        # J_grad[3,:]= [J_grad[2,1],J_grad[2,1]]
-        # return J_grad
+        # print("dJdq 1\n", dJdq)
 
         n = self.robot.get_num_joints()
         dJdq=np.zeros((2*n,n))
         J=self.Jacobian(q,offsets)
-        dJdq[0,:] = -J[1,:]
-        dJdq[1,:] = [-J[1,1],-J[1,1]]
-        dJdq[2,:] = -J[0,:]
-        dJdq[3,:] = [J[0,1],J[0,1]]
+
+        if n==2:
+            dJdq[0,:] = -J[1,:]
+            dJdq[1,:] = [-J[1,1],-J[1,1]]
+            dJdq[2,:] = J[0,:]
+            dJdq[3,:] = [J[0,1],J[0,1]]
+
+        if n==3:
+            dJdq[0,:] = -J[1,:]
+            dJdq[1,:2]= [-J[1,1],-J[1,1]]
+            dJdq[1,2] = -J[1,2]
+            dJdq[2,:] = [-J[1,2]]*n
+            dJdq[3,:] = J[0,:]
+            dJdq[4,:2]= [J[0,1],J[0,1]]
+            dJdq[4,2] = J[0,2]
+            dJdq[5,:] = [J[0,2]]*n
+        # Need to do generalize for every n
         return dJdq
 
 
@@ -240,44 +235,58 @@ class RBDReference:
     # Commented part => product of Xmat and ddXmat
     # dJdq has same elements as J => less compute
     def d2Jdq2(self,q ,offsets = [np.matrix([[0,1,0,1]])]):
-        # n = self.robot.get_num_joints()
-        # ddJdq=np.zeros((2*n,n))
-        # J_list = []
-        # for jid in self.robot.get_leaf_nodes():
-        #     jidChain = sorted(self.robot.get_ancestors_by_id(jid))
-        #     jidChain.append(jid)
-        #     deePos = None
-        #     for dind in range(n):
-        #         if dind not in jidChain:
-        #             deePos_col = np.zeros((6,1))
-        #             deePos = self.equals_or_hstack(deePos,deePos_col)
-        #         else:
-        #             Xmat_hom = np.eye(4)
-        #             for ind in jidChain:
+        n = self.robot.get_num_joints()
+        ddJdq=np.zeros((2*n,n))
+        J_list = []
+        for jid in self.robot.get_leaf_nodes():
+            jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+            jidChain.append(jid)
+            deePos = None
+            for dind in range(n):
+                if dind not in jidChain:
+                    deePos_col = np.zeros((6,1))
+                    deePos = self.equals_or_hstack(deePos,deePos_col)
+                else:
+                    Xmat_hom = np.eye(4)
+                    for ind in jidChain:
                     
-        #                 if ind == dind: # use second derivative
-        #                     currX = self.robot.get_dddXmat_hom_Func_by_id(ind)(q[ind])
-        #                 else: # use normal transform
-        #                     currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
-        #                 Xmat_hom = np.matmul(Xmat_hom,currX)
-        #             deePos_xyz1 = Xmat_hom * offsets[0].transpose()
-        #             deePos_col = deePos_xyz1[:3,:]
-        #             deePos = self.equals_or_hstack(deePos,deePos_col)
+                        if ind == dind: # use second derivative
+                            currX = self.robot.get_dddXmat_hom_Func_by_id(ind)(q[ind])
+                        else: # use normal transform
+                            currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+                        Xmat_hom = np.matmul(Xmat_hom,currX)
+                    deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+                    deePos_col = deePos_xyz1[:3,:]
+                    deePos = self.equals_or_hstack(deePos,deePos_col)
 
-        #     J_list.append(deePos)
-        # ddJdq[0,:]= J_list[0][0,:n]
-        # ddJdq[1,:]= [ddJdq[0,1]]*n
-        # ddJdq[2,:]= J_list[0][1,:n]
-        # ddJdq[3,:]= [ddJdq[2,1]]*n
+            J_list.append(deePos)
+        ddJdq[0,:]= J_list[0][0,:n]
+        ddJdq[1,:]= [ddJdq[0,1]]*n
+        ddJdq[2,:]= J_list[0][1,:n]
+        ddJdq[3,:]= [ddJdq[2,1]]*n
 
 
         n = self.robot.get_num_joints()
         ddJdq=np.zeros((2*n,n))
         J=self.Jacobian(q,offsets) # compute J twice (in dJdq and ddJdq)
-        ddJdq[0,:] = -J[0,:]
-        ddJdq[1,:] = [-J[0,1],-J[0,1]]
-        ddJdq[2,:] = -J[1,:]
-        ddJdq[3,:] = [-J[1,1],-J[1,1]]
+        if n==2:
+            ddJdq[0,:] = -J[0,:]
+            ddJdq[1,:] = [-J[0,1],-J[0,1]]
+            ddJdq[2,:] = -J[1,:]
+            ddJdq[3,:] = [-J[1,1],-J[1,1]]
+
+        if n==3:
+            ddJdq[0,:] = -J[0,:]
+            ddJdq[1,:2]= [-J[0,1],-J[0,1]]
+            ddJdq[1,2] = -J[0,2]
+            ddJdq[2,:] = [-J[0,2]]*n
+            ddJdq[3,:] = J[1,:]
+            ddJdq[4,:2]= [J[1,1],J[1,1]]
+            ddJdq[4,2] = J[1,2]
+            ddJdq[5,:] = [J[1,2]]*n
+
+
+
         return ddJdq
 
     #NOT USED
@@ -297,7 +306,7 @@ class RBDReference:
         n = self.robot.get_num_joints()
         J1=self.Jacobian(q,offsets)
         dJdq=self.dJdq(q,offsets)
-        J2=(dJdq@qd).reshape(n,n)
+        J2=(dJdq@qd).reshape(2,n)
         J_top = np.hstack((J1, np.zeros_like(J1)))
         J_bottom = np.hstack((J2, J1))
         J = np.vstack((J_top, J_bottom))
@@ -327,7 +336,7 @@ class RBDReference:
                     deePos_col = deePos_xyz1[:3,:]
                     deePos = self.equals_or_hstack(deePos,deePos_col)
             jacobian.append(deePos)
-        return jacobian[0][:n,:n]
+        return jacobian[0][:2,:n]
 
     """
     Recursive Newton-Euler Method is a recursive inverse dynamics algorithm to calculate the forces required for a specified trajectory
