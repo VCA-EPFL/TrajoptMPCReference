@@ -15,6 +15,8 @@ from typing import List
 import time
 from overloading import matrix_
 
+i=0
+
 def joint_angles_to_ee_pos(l1:float,l2:float,state: np.ndarray):
 
 
@@ -64,6 +66,7 @@ def display(x: np.ndarray, x_lim: List[float] = [-2.5, 2.5], y_lim: List[float] 
 
 
 def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, solver_methods: List[SQPSolverMethods], options = {}):
+	global i
 	for solver in solver_methods:
 		print("-----------------------------")
 		print("Solving with method: ", solver)
@@ -78,13 +81,13 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		x = np.zeros((nx,N))
 		u = np.zeros((nu,N-1))
 		xs = copy.deepcopy(x[:,0])
-		t1 = time.perf_counter(), time.process_time()
-		x, u , saved_J = trajoptMPCReference.SQP(x, u, N, dt, LINEAR_SYSTEM_SOLVER_METHOD = solver, options = options)
-		t2 = time.perf_counter(), time.process_time()
+		t1 = time.perf_counter()#, time.process_time()
+		x, u = trajoptMPCReference.SQP(x, u, N, dt, LINEAR_SYSTEM_SOLVER_METHOD = solver, options = options)
+		t2 = time.perf_counter()#, time.process_time()
 
 		# Save state for display
 		type_cost=sys.argv[1]
-		csv_file_path = f'data/{type_cost}/final_state.csv'
+		csv_file_path = f'data/{type_cost}/multiple_test/final_state_{i}.csv'
 		with open(csv_file_path, 'w', newline='\n') as file:
 			csv_writer = csv.writer(file)
 			csv_writer.writerows(x)
@@ -111,11 +114,15 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		if isinstance(trajoptMPCReference.cost,QuadraticCost):
 			error=x[:,-1] - trajoptMPCReference.cost.xg
 
+		
+		i=i+1
+		run_time=t2-t1
 
-		csv_file_path = f'data/{type_cost}/J.csv'
-		with open(csv_file_path, 'w', newline='\n') as file:
-			csv_writer = csv.writer(file)
-			csv_writer.writerows(saved_J)
+		return run_time, error
+		# csv_file_path = f'data/{type_cost}/J.csv'
+		# with open(csv_file_path, 'w', newline='\n') as file:
+		# 	csv_writer = csv.writer(file)
+		# 	csv_writer.writerows(saved_J)
 
 
 	
@@ -133,7 +140,7 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	
 	trajoptMPCReference = TrajoptMPCReference(plant, cost)
 	
-	saved_J=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
+	run_time, error= runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 
 	# print("---------------------------------")
@@ -150,8 +157,8 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	# trajoptMPCReference = TrajoptMPCReference(plant, cost, soft_constraints)
 	# runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
-
-	return saved_J
+	return run_time, error
+	
 
 def runSolversMPC(trajoptMPCReference, N, dt, solver_methods, options = {}):
 	for solver in solver_methods:

@@ -36,6 +36,7 @@ QF=np.array([[100.0, 0.0, 0.0, 0.0],
  [0.0, 0.0, 0.0, 100.0]])
 R=np.array([[0.1, 0.0],
  [0.0, 0.1]])
+ 
 
 
 
@@ -52,10 +53,10 @@ R=np.array([[0.1, 0.0],
 # xg= matrix_([0.1, 0.1, 0.,0.])
 
 
-
+t1 = time.time()
 if(type_cost =='sym'):
     xg= np.array([-1, 1, 0.,0.])
-    cost=ArmCost(Q,QF,R,xg,simplified_hessian=True)
+    cost=ArmCost(Q,QF,R,xg,simplified_hessian=False)
 elif(type_cost == 'quadratic') :
     xg= np.array([0.,1.57, 0.,0.])
     cost=QuadraticCost(Q,QF,R,xg)
@@ -74,20 +75,37 @@ soft_constraints.set_torque_limits([7.0],[-7.0],"ACTIVE_SET")
 
 options = {"expected_reduction_min_SQP_DDP":-100, "display": True} # needed for hard_constraints - TODO debug why
 
-t1 = time.time()
+t2 = time.time()
 # #cProfile.run('runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)', sort='cumtime')
 runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, sqp_solver_methods, options)
-t2 = time.time()
+t3 = time.time()
 
-print(f"It took {t2-t1:.2f} seconds to compute")
+print(f"It took {t2-t1:.2f} seconds to initialize the cost")
+print(f"It took {t3-t2:.2f} seconds to perform the optimization")
 
-# current_frame = inspect.currentframe()
-# innerframes=inspect.getinnerframes(current_frame)
-# print("Outer frames: ", [(frame.filename, frame.function, frame.lineno) for frame,_,_,_,_ in innerframes])
+
 
 # runMPCExample(plant, cost, hard_constraints, soft_constraints, N, dt, mpc_solver_methods, options)
 
-# csv_file_path = f'data/{type_cost}/J.csv'
+
+
+# Save data aquired during the optimization
+csv_file_path = f'data/{type_cost}/cost.csv'
+with open(csv_file_path, 'w', newline='\n') as file:
+    csv_writer = csv.writer(file)
+    csv_writer.writerows(cost.saved_cost)
+
+csv_file_path = f'data/{type_cost}/gradient.csv'
+with open(csv_file_path, 'w', newline='\n') as file:
+    csv_writer = csv.writer(file)
+    csv_writer.writerows(cost.saved_grad)
+
+csv_file_path = f'data/{type_cost}/hess.csv'
+with open(csv_file_path, 'w', newline='\n') as file:
+    csv_writer = csv.writer(file)
+    csv_writer.writerows(cost.saved_hess)
+
+# csv_file_path = f'data/{type_cost}/simple_hess.csv'
 # with open(csv_file_path, 'w', newline='\n') as file:
 #     csv_writer = csv.writer(file)
-#     csv_writer.writerows(saved_J)
+#     csv_writer.writerows(cost.saved_simple_hess)
