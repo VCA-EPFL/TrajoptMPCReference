@@ -2,12 +2,15 @@ import numpy as np
 import copy
 import sympy as sp
 np.set_printoptions(precision=4, suppress=True, linewidth = 100)
-import time
+from overloading import matrix_
+
 class RBDReference:
     def __init__(self, robotObj):
         self.robot = robotObj # instance of Robot Object class created by URDFparser``
+        self.overloading = False
 
     def cross_operator(self, v):
+        #print("cross_operator")
         # for any vector v, computes the operator v x 
         # vec x = [wx   0]
         #         [vox wx]
@@ -22,11 +25,14 @@ class RBDReference:
         return(v_cross)
     
     def dual_cross_operator(self, v):
+        #print("dual_cross_operator")
+
         #(crf in in spatial_v2_extended)
         return(-1 * self.cross_operator(v).T)
     
 
     def icrf(self, v):
+        
         #helper function defined in spatial_v2_extended library, called by idsva()
         res = [[0,  -v[2],  v[1],    0,  -v[5],  v[4]],
             [v[2],    0,  -v[0],  v[5],    0,  -v[3]],
@@ -34,22 +40,32 @@ class RBDReference:
             [    0,  -v[5],  v[4],    0,    0,    0],
             [ v[5],    0,  -v[3],    0,    0,    0],
             [-v[4],  v[3],    0,    0,    0,    0]]
-        return -np.asmatrix(res)
+        if(self.overloading):
+            return -matrix_(res)
+        else:
+            return -np.asmatrix(res)
+
 
 
     def mxS(self, S, vec, alpha=1.0):
+        #print("mxS")
+
         # returns the spatial cross product between vectors S and vec. vec=[v0, v1 ... vn] and S = [s0, s1, s2, s3, s4, s5]
         # derivative of spatial motion vector = v x m
         # return(alpha * np.dot(self.cross_operator(vec), S))     
         return(alpha * self.cross_operator(vec).dot(S))    
     
     def fxv_simple(self, m, f):
+        #print("fxv_simple")
+
         # force spatial vector cross product. 
         # return(np.dot(self.dual_cross_operator(m), f))
         return(self.dual_cross_operator(m).dot(f))
         
 
     def fxv(self, fxVec, timesVec):
+        #print("fxv")
+
         # Fx(fxVec)*timesVec
         #   0  -v(2)  v(1)    0  -v(5)  v(4)
         # v(2)    0  -v(0)  v(5)    0  -v(3)
@@ -57,7 +73,11 @@ class RBDReference:
         #   0     0     0     0  -v(2)  v(1)
         #   0     0     0   v(2)    0  -v(0)
         #   0     0     0  -v(1)  v(0)    0
-        result = np.zeros((6))
+        if(self.overloading):
+            result = matrix_(np.zeros((6)))
+        else:
+            result = np.zeros((6))
+
         result[0] = -fxVec[2] * timesVec[1] + fxVec[1] * timesVec[2] - fxVec[5] * timesVec[4] + fxVec[4] * timesVec[5]
         result[1] =  fxVec[2] * timesVec[0] - fxVec[0] * timesVec[2] + fxVec[5] * timesVec[3] - fxVec[3] * timesVec[5]
         result[2] = -fxVec[1] * timesVec[0] + fxVec[0] * timesVec[1] - fxVec[4] * timesVec[3] + fxVec[3] * timesVec[4]
@@ -67,10 +87,14 @@ class RBDReference:
         return result
 
     def fxS(self, S, vec, alpha = 1.0):
+        #print("fxS")
+
         # force spatial cross product with motion subspace 
         return -self.mxS(S, vec, alpha)
 
     def vxIv(self, vec, Imat):
+        #print("vxIv")
+
         # necessary component in differentiating Iv (product rule).
         # We express I_dot x v as v x (Iv) (see Featherstone 2.14)
         # our core equation of motion is f = d/dt (Iv) = Ia + vx* Iv
@@ -90,27 +114,31 @@ class RBDReference:
     offests is an array of np matricies of the form (offset_x, offset_y, offset_z, 1)
     """
     def end_effector_positions(self, q, offsets = [np.matrix([[0,1,0,1]])]):
-
-        eePos_arr = []
-        for jid in self.robot.get_leaf_nodes():
-            jidChain = sorted(self.robot.get_ancestors_by_id(jid))
-            jidChain.append(jid)
-            Xmat_hom = np.eye(4)
-            for ind in jidChain:
-                currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
-                Xmat_hom = np.matmul(Xmat_hom,currX)
-
-            currId = jid
-            Xmat_hom = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
-            currId = self.robot.get_parent_id(currId)
-            while(currId != -1):
-                currX = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
-                Xmat_hom = np.matmul(currX,Xmat_hom)
-                currId = self.robot.get_parent_id(currId)
-
-            eePos_xyz1 = Xmat_hom * offsets[0].transpose()
-            eePos_arr.append(eePos_xyz1[:2,:])
-        return eePos_arr[0]
+        if(self.overloading):
+            eePos_arr = []
+            for jid in self.robot.get_leaf_nodes():
+                jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+                jidChain.append(jid)
+                Xmat_hom = matrix_(np.eye(4))
+                for ind in jidChain:
+                    currX = matrix_(self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind]))
+                    Xmat_hom = Xmat_hom@currX
+                eePos_xyz1 = Xmat_hom * offsets[0].transpose()
+                eePos_arr.append(eePos_xyz1[:2,:])
+            return eePos_arr[0]
+        else:
+            eePos_arr = []
+            for jid in self.robot.get_leaf_nodes():
+                jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+                jidChain.append(jid)
+                Xmat_hom = np.eye(4)
+                for ind in jidChain:
+                    currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+                    Xmat_hom = np.matmul(Xmat_hom,currX)
+                
+                eePos_xyz1 = Xmat_hom * offsets[0].transpose()
+                eePos_arr.append(eePos_xyz1[:2,:])
+            return eePos_arr[0]
 
     """
     End Effectors Position Gradients
@@ -120,10 +148,13 @@ class RBDReference:
             obj = col
         else:
             obj = np.hstack((obj,col))
-        return obj
+        if(self.overloading):
+            return matrix_(obj)
+        else:
+            return obj
     #NOT USED
     def symbolic_jacobian(self,offsets = [np.matrix([[0,1,0,1]])]):
-        n = self.robot.get_num_joints()  
+        n = self.robot.get_num_joints()
         q_symbols = [sp.Symbol('q{}'.format(i)) for i in range(1, n+1)]
 
         deePos_arr = []
@@ -161,8 +192,6 @@ class RBDReference:
 
             deePos_arr.append(deePos)
         J=deePos_arr[0][:2,:2]
-
-        print("Sym Jacobian\n", J)
         return J
         
     #NOT USED
@@ -172,7 +201,6 @@ class RBDReference:
         J=self.symbolic_jacobian(offsets)
         #need symbolic expression to diff
         dJdq = [[sp.diff(J[i, j], q) for q in q_symbols] for i in range(J.shape[0]) for j in range(J.shape[1])]
-        print("dJdq sym;\n",dJdq)
         return sp.lambdify(q_symbols,dJdq, "numpy")
 
     # Commented part => product of Xmat and ddXmat
@@ -201,32 +229,29 @@ class RBDReference:
         #             deePos_col = deePos_xyz1#[:3,:]
         #             deePos = self.equals_or_hstack(deePos,deePos_col)
         #     jacobian_grad.append(deePos)
+
         # dJdq[0,:]= jacobian_grad[0][0,:n]
         # dJdq[1,:]= [dJdq[0,1]]*n
         # dJdq[2,:]= jacobian_grad[0][1,:2]
         # dJdq[3,:]= [dJdq[2,1]]*n
-        # print("dJdq 1\n", dJdq)
+        # return dJdq
+
+        # J_grad[0,:]= jacobian_grad[0][0,:n]
+        # J_grad[1,:]= [J_grad[0,1],J_grad[0,1]]
+        # J_grad[2,:]= jacobian_grad[0][1,:2]
+        # J_grad[3,:]= [J_grad[2,1],J_grad[2,1]]
+        # return J_grad
 
         n = self.robot.get_num_joints()
-        dJdq=np.zeros((2*n,n))
+        if(self.overloading):
+            dJdq=matrix_(np.zeros((2*n,n)))
+        else:
+            dJdq=np.zeros((2*n,n))
         J=self.Jacobian(q,offsets)
-
-        if n==2:
-            dJdq[0,:] = -J[1,:]
-            dJdq[1,:] = [-J[1,1],-J[1,1]]
-            dJdq[2,:] = J[0,:]
-            dJdq[3,:] = [J[0,1],J[0,1]]
-
-        if n==3:
-            dJdq[0,:] = -J[1,:]
-            dJdq[1,:2]= [-J[1,1],-J[1,1]]
-            dJdq[1,2] = -J[1,2]
-            dJdq[2,:] = [-J[1,2]]*n
-            dJdq[3,:] = J[0,:]
-            dJdq[4,:2]= [J[0,1],J[0,1]]
-            dJdq[4,2] = J[0,2]
-            dJdq[5,:] = [J[0,2]]*n
-        # Need to do generalize for every n
+        dJdq[0,:] = -J[1,:]
+        dJdq[1,:] = [-J[1,1],-J[1,1]]
+        dJdq[2,:] = -J[0,:]
+        dJdq[3,:] = [J[0,1],J[0,1]]
         return dJdq
 
 
@@ -235,108 +260,120 @@ class RBDReference:
     # Commented part => product of Xmat and ddXmat
     # dJdq has same elements as J => less compute
     def d2Jdq2(self,q ,offsets = [np.matrix([[0,1,0,1]])]):
-        n = self.robot.get_num_joints()
-        ddJdq=np.zeros((2*n,n))
-        J_list = []
-        for jid in self.robot.get_leaf_nodes():
-            jidChain = sorted(self.robot.get_ancestors_by_id(jid))
-            jidChain.append(jid)
-            deePos = None
-            for dind in range(n):
-                if dind not in jidChain:
-                    deePos_col = np.zeros((6,1))
-                    deePos = self.equals_or_hstack(deePos,deePos_col)
-                else:
-                    Xmat_hom = np.eye(4)
-                    for ind in jidChain:
+        # n = self.robot.get_num_joints()
+        # ddJdq=np.zeros((2*n,n))
+        # J_list = []
+        # for jid in self.robot.get_leaf_nodes():
+        #     jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+        #     jidChain.append(jid)
+        #     deePos = None
+        #     for dind in range(n):
+        #         if dind not in jidChain:
+        #             deePos_col = np.zeros((6,1))
+        #             deePos = self.equals_or_hstack(deePos,deePos_col)
+        #         else:
+        #             Xmat_hom = np.eye(4)
+        #             for ind in jidChain:
                     
-                        if ind == dind: # use second derivative
-                            currX = self.robot.get_dddXmat_hom_Func_by_id(ind)(q[ind])
-                        else: # use normal transform
-                            currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
-                        Xmat_hom = np.matmul(Xmat_hom,currX)
-                    deePos_xyz1 = Xmat_hom * offsets[0].transpose()
-                    deePos_col = deePos_xyz1[:3,:]
-                    deePos = self.equals_or_hstack(deePos,deePos_col)
+        #                 if ind == dind: # use second derivative
+        #                     currX = self.robot.get_dddXmat_hom_Func_by_id(ind)(q[ind])
+        #                 else: # use normal transform
+        #                     currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+        #                 Xmat_hom = np.matmul(Xmat_hom,currX)
+        #             deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+        #             deePos_col = deePos_xyz1[:3,:]
+        #             deePos = self.equals_or_hstack(deePos,deePos_col)
 
-            J_list.append(deePos)
-        ddJdq[0,:]= J_list[0][0,:n]
-        ddJdq[1,:]= [ddJdq[0,1]]*n
-        ddJdq[2,:]= J_list[0][1,:n]
-        ddJdq[3,:]= [ddJdq[2,1]]*n
+        #     J_list.append(deePos)
+        # ddJdq[0,:]= J_list[0][0,:n]
+        # ddJdq[1,:]= [ddJdq[0,1]]*n
+        # ddJdq[2,:]= J_list[0][1,:n]
+        # ddJdq[3,:]= [ddJdq[2,1]]*n
 
 
         n = self.robot.get_num_joints()
-        ddJdq=np.zeros((2*n,n))
+        if(self.overloading):
+            ddJdq=matrix_(np.zeros((2*n,n)))
+        else:
+            ddJdq=np.zeros((2*n,n))
         J=self.Jacobian(q,offsets) # compute J twice (in dJdq and ddJdq)
-        if n==2:
-            ddJdq[0,:] = -J[0,:]
-            ddJdq[1,:] = [-J[0,1],-J[0,1]]
-            ddJdq[2,:] = -J[1,:]
-            ddJdq[3,:] = [-J[1,1],-J[1,1]]
-
-        if n==3:
-            ddJdq[0,:] = -J[0,:]
-            ddJdq[1,:2]= [-J[0,1],-J[0,1]]
-            ddJdq[1,2] = -J[0,2]
-            ddJdq[2,:] = [-J[0,2]]*n
-            ddJdq[3,:] = J[1,:]
-            ddJdq[4,:2]= [J[1,1],J[1,1]]
-            ddJdq[4,2] = J[1,2]
-            ddJdq[5,:] = [J[1,2]]*n
-
-
-
+        ddJdq[0,:] = -J[0,:]
+        ddJdq[1,:] = [-J[0,1],-J[0,1]]
+        ddJdq[2,:] = -J[1,:]
+        ddJdq[3,:] = [-J[1,1],-J[1,1]]
         return ddJdq
 
-    #NOT USED
-    # def jacobian_grad(self,q):
-    #  [q1,q2]=q
-    #  s1=np.sin(q1)
-    #  s2=np.sin(q2)
-    #  c1=np.cos(q1)
-    #  c2=np.cos(q2)
-    #  return np.array([[s1*c2 + s1 + s2*c1, s1*c2 + s2*c1],\
-    #                    [s1*c2 + s2*c1, s1*c2 + s2*c1], \
-    #                    [s1*s2 - c1*c2 - c1, s1*s2 - c1*c2], \
-    #                    [s1*s2 - c1*c2, s1*s2 - c1*c2]])
-    
     #d(x,y,vx,vy)/d(q,q_d)
     def jacobian_tot_state(self,q,qd,offsets = [np.matrix([[0,1,0,1]])]):
-        n = self.robot.get_num_joints()
-        J1=self.Jacobian(q,offsets)
-        dJdq=self.dJdq(q,offsets)
-        J2=(dJdq@qd).reshape(2,n)
-        J_top = np.hstack((J1, np.zeros_like(J1)))
-        J_bottom = np.hstack((J2, J1))
-        J = np.vstack((J_top, J_bottom))
-        return J
+        if(self.overloading):
+            n = self.robot.get_num_joints()
+            J1=self.Jacobian(q,offsets)
+            dJdq=self.dJdq(q,offsets)
+            J2=(dJdq@qd).reshape(n,n)
+            J_top = matrix_(np.hstack((J1, np.zeros_like(J1))))
+            J_bottom = matrix_(np.hstack((J2, J1)))
+            J = matrix_(np.vstack((J_top, J_bottom)))
+            return J
+        else:
+            n = self.robot.get_num_joints()
+            J1=self.Jacobian(q,offsets)
+            dJdq=self.dJdq(q,offsets)
+            J2=(dJdq@qd).reshape(n,n)
+            J_top = np.hstack((J1, np.zeros_like(J1)))
+            J_bottom = np.hstack((J2, J1))
+            J = np.vstack((J_top, J_bottom))
+            return J
     
     #d(x,y)/dq
     def Jacobian(self, q, offsets = [np.matrix([[0,1,0,1]])]):
-        n = self.robot.get_num_joints()
-        jacobian = []
-        for jid in self.robot.get_leaf_nodes():
-            jidChain = sorted(self.robot.get_ancestors_by_id(jid))
-            jidChain.append(jid)
-            deePos = None
-            for dind in range(n):
-                if dind not in jidChain:
-                    deePos_col = np.zeros((6,1))
-                    deePos = self.equals_or_hstack(deePos,deePos_col)
-                else:
-                    Xmat_hom = np.eye(4)
-                    for ind in jidChain:
-                        if ind == dind: # use derivative
-                            currX = self.robot.get_dXmat_hom_Func_by_id(ind)(q[ind])
-                        else: # use normal transform
-                            currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
-                        Xmat_hom = np.matmul(Xmat_hom,currX)
-                    deePos_xyz1 = Xmat_hom * offsets[0].transpose()
-                    deePos_col = deePos_xyz1[:3,:]
-                    deePos = self.equals_or_hstack(deePos,deePos_col)
-            jacobian.append(deePos)
-        return jacobian[0][:2,:n]
+        if(self.overloading):
+            n = self.robot.get_num_joints()
+            jacobian = []
+            for jid in self.robot.get_leaf_nodes():
+                jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+                jidChain.append(jid)
+                deePos = None
+                for dind in range(n):
+                    if dind not in jidChain:
+                        deePos_col = matrix_(np.zeros((6,1)))
+                        deePos = self.equals_or_hstack(deePos,deePos_col)
+                    else:
+                        Xmat_hom = matrix_(np.eye(4))
+                        for ind in jidChain:
+                            if ind == dind: # use derivative
+                                currX = matrix_(self.robot.get_dXmat_hom_Func_by_id(ind)(q[ind]))
+                            else: # use normal transform
+                                currX = matrix_(self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind]))
+                            Xmat_hom = Xmat_hom@currX
+                        deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+                        deePos_col = deePos_xyz1[:3,:]
+                        deePos = self.equals_or_hstack(deePos,deePos_col)
+                jacobian.append(deePos)
+            return jacobian[0][:n,:n]
+        else:
+            n = self.robot.get_num_joints()
+            jacobian = []
+            for jid in self.robot.get_leaf_nodes():
+                jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+                jidChain.append(jid)
+                deePos = None
+                for dind in range(n):
+                    if dind not in jidChain:
+                        deePos_col = np.zeros((6,1))
+                        deePos = self.equals_or_hstack(deePos,deePos_col)
+                    else:
+                        Xmat_hom = np.eye(4)
+                        for ind in jidChain:
+                            if ind == dind: # use derivative
+                                currX = self.robot.get_dXmat_hom_Func_by_id(ind)(q[ind])
+                            else: # use normal transform
+                                currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+                            Xmat_hom = np.matmul(Xmat_hom,currX)
+                        deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+                        deePos_col = deePos_xyz1[:3,:]
+                        deePos = self.equals_or_hstack(deePos,deePos_col)
+                jacobian.append(deePos)
+            return jacobian[0][:n,:n]
 
     """
     Recursive Newton-Euler Method is a recursive inverse dynamics algorithm to calculate the forces required for a specified trajectory
@@ -349,6 +386,8 @@ class RBDReference:
 
     
     def rnea_fpass(self, q, qd, qdd = None, GRAVITY = -9.81):
+        #print("rnea_fpass")
+
         """
         Forward Pass for RNEA algorithm. Computes the velocity and acceleration of each body in the tree necessary to produce a certain trajectory
         
@@ -384,7 +423,7 @@ class RBDReference:
             else:
                 v[:,ind] = np.matmul(Xmat,v[:,parent_ind]) # velocity of parent in base coordinates. 
                 a[:,ind] = np.matmul(Xmat,a[:,parent_ind])
-               # print("RNEA v:", v[:,parent_ind])
+               # #print("RNEA v:", v[:,parent_ind])
             v[:,ind] += S*qd[ind] # S turns config space into actual velocity
             
             a[:,ind] += self.mxS(S,v[:,ind],qd[ind])
@@ -399,6 +438,8 @@ class RBDReference:
         return (v,a,f)
 
     def rnea_bpass(self, q, qd, f, USE_VELOCITY_DAMPING = False):
+        #print("rnea_bpass")
+
         # allocate memory
         n = len(q) # assuming len(q) = len(qd)
         c = np.zeros(n)
@@ -426,6 +467,8 @@ class RBDReference:
         return (c,f)
 
     def rnea(self, q, qd, qdd = None, GRAVITY = -9.81, USE_VELOCITY_DAMPING = False):
+        #print("rnea")
+
         """
         Recursive Newton-Euler Method is a recursive inverse dynamics algorithm to calculate the forces required for a specified trajectory
 
@@ -453,6 +496,8 @@ class RBDReference:
         return (c,v,a,f)
 
     def rnea_grad_fpass_dq(self, q, qd, v, a, GRAVITY = -9.81):
+        #print("rnea_grad_fpass_dq")
+
         
         # allocate memory
         n = len(qd)
@@ -491,6 +536,8 @@ class RBDReference:
         return (dv_dq, da_dq, df_dq)
 
     def rnea_grad_fpass_dqd(self, q, qd, v):
+        #print("rnea_grad_fpass_dqd")
+
         
         # allocate memory
         n = len(qd)
@@ -524,6 +571,8 @@ class RBDReference:
         return (dv_dqd, da_dqd, df_dqd)
 
     def rnea_grad_bpass_dq(self, q, f, df_dq):
+        #print("rnea_grad_bpass_dq")
+
         
         # allocate memory
         n = len(q) # assuming len(q) = len(qd)
@@ -545,6 +594,7 @@ class RBDReference:
         return dc_dq
 
     def rnea_grad_bpass_dqd(self, q, df_dqd, USE_VELOCITY_DAMPING = False):
+        #print("rnea_grad_bpass_dqd")
         
         # allocate memory
         n = len(q) # assuming len(q) = len(qd)
@@ -568,6 +618,8 @@ class RBDReference:
         return dc_dqd
 
     def rnea_grad(self, q, qd, qdd = None, GRAVITY = -9.81, USE_VELOCITY_DAMPING = False):
+        #print("rnea_grad")
+
         # instead of passing in trajectory, what if we want our planning algorithm to solve for the optimal trajectory?
         """
         The gradients of inverse dynamics can be very extremely useful inputs into trajectory optimization algorithmss.
@@ -595,6 +647,8 @@ class RBDReference:
     
 
     def idsva(self, q, qd, qdd, GRAVITY = -9.81):
+        #print("idsva")
+
         """alternative to rnea_grad(), described in "Efficient Analytical Derivatives of Rigid-Body Dynamics using
 Spatial Vector Algebra" (Singh, Russel, and Wensing)
 
@@ -707,6 +761,8 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
 
 
     def minv_bpass(self, q):
+        #print("minv_bpass")
+
         # allocate memory
         n = len(q)
         Minv = np.zeros((n,n))
@@ -744,6 +800,8 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
         return (Minv, F, U, Dinv)
 
     def minv_fpass(self, q, Minv, F, U, Dinv):
+        #print("minv_fpass")
+
         n = len(q)
         
         # forward pass
@@ -761,6 +819,8 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
         return Minv
 
     def minv(self, q, output_dense = True):
+        #print("minv")
+
         # based on https://www.researchgate.net/publication/rnea343098270_Analytical_Inverse_of_the_Joint_Space_Inertia_Matrix
         """ Computes the analytical inverse of the joint space inertia matrix
         CRBA calculates the joint space inertia matrix H to represent the composite inertia
@@ -784,6 +844,8 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
         return Minv
 
     def crm(v):
+        #print("crm")
+
         if len(v) == 6:
             vcross = np.array([0, -v[3], v[2], 0,0,0], [v[3], 0, -v[1], 0,0,0], [-v[2], v[1], 0, 0,0,0], [0, -v[6], v[5], 0,-v[3],v[2]], [v[6], 0, -v[4], v[3],0,-v[1]], [-v[5], v[4], 0, -v[2],v[1],0])
         else:
@@ -791,6 +853,8 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
         return vcross
 
     def aba(self, q, qd, tau, GRAVITY = -9.81):
+        #print("aba")
+
        # allocate memory
         n = len(qd)
         v = np.zeros((6,n))
@@ -878,6 +942,8 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
         return qdd
     
     def crba( self, q, qd, tau):
+        #print("crba")
+
         n = len(qd)
         
         C = self.rnea(q, qd, qdd = None, GRAVITY = -9.81)[0]
@@ -915,7 +981,7 @@ Spatial Vector Algebra" (Singh, Russel, and Wensing)
 
 # import numpy as np
 # import copy
-# np.set_printoptions(precision=4, suppress=True, linewidth = 100)
+# np.set_#printoptions(precision=4, suppress=True, linewidth = 100)
 
 # class RBDReference:
 #     def __init__(self, robotObj):

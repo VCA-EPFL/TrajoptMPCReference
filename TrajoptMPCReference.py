@@ -39,6 +39,7 @@ class TrajoptMPCReference:
         self.plant = plantObj
         self.cost = costObj
         self.other_constraints = constraintObj
+        
 
     def update_cost(self, costObj: TrajoptCost):
         assert issubclass(type(costObj),TrajoptCost), "Must pass in a TrajoptCost object to update_cost in TrajoptMPCReference."
@@ -451,6 +452,8 @@ class TrajoptMPCReference:
                         #D += np.dot(self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0], dxul[n*(N-1) : n*(N-1)+nx, 0])
                         D += self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0].dot(dxul[n*(N-1) : n*(N-1)+nx, 0])
 
+                    if(self.plant.rbdReference.overloading):
+                        D=np.float64(D)
                     
                     #
                     # Compute totals for line search test

@@ -15,52 +15,6 @@ from typing import List
 import time
 from overloading import matrix_
 
-def joint_angles_to_ee_pos(l1:float,l2:float,state: np.ndarray):
-
-
-	posx=l2*np.cos(state[0],state[1])+ l1*np.cos(state[0])
-	posy=l2*np.sin(state[0],state[1])+ l1*np.sin(state[0])
-
-	return posx,posy
-
-
-def display(x: np.ndarray, x_lim: List[float] = [-2.5, 2.5], y_lim: List[float] = [-2.5, 2.5], title: str = ""):
-	print("display")
-	fig = plt.figure()
-	ax = fig.add_subplot(111)
-	# line1, = ax.plot([0, 5, 10], [0, 5, 10], 'b-')
-	line1, = ax.plot([0, 0, 0], [0, 1, 2], 'b-')
-	ax.set_xlim(x_lim)
-	ax.set_ylim(y_lim)
-	# set suptitle as title
-	fig.suptitle(title)
-	N = x.shape[1]
-	type_cost=sys.argv[1]
-	for k in range(N):
-		print("State at time step ", k, " is: ", x[:,k])
-		# if type_cost in ['urdf','sym']:
-		# 	x=-np.sin(x[0,k]+x[1,k])-np.sin(x[0,k])
-		# 	y=np.cos(x[0,k]+x[1,k])+np.cos(x[0,k])
-		# 	print("End effector postition at time step ", k, " is x: ", x, ", y: ", y)
-
-		# x[:,k] is the state at time step k
-		# the first number is the angle of the first joint
-		# the second number is the angle of the second joint
-		# draw the line with a length of 5
-		# add 90 degrees to the angle to make it point up
-		first_point = [0, 0]
-		second_point = [-np.sin(x[0,k]), np.cos(x[0,k])]
-		third_point = [second_point[0] - np.sin(x[0,k]+x[1,k]), second_point[1] + np.cos(x[0,k]+x[1,k])]
-		line1.set_xdata([first_point[0], second_point[0], third_point[0]])
-		line1.set_ydata([first_point[1], second_point[1], third_point[1]])
-		plt.title("Time Step: " + str(k))
-		fig.canvas.draw()
-		#fig.canvas.mpl_connect('close_event', _on_close)
-		fig.canvas.flush_events()
-		plt.pause(0.1)
-
-	plt.show()
-
 
 
 def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, solver_methods: List[SQPSolverMethods], options = {}):
@@ -73,33 +27,32 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 		nv = trajoptMPCReference.plant.get_num_vel()
 		nx = nq + nv
 		nu = trajoptMPCReference.plant.get_num_cntrl()
-		# x = matrix_(np.zeros((nx,N)))
-		# u = matrix_(np.zeros((nu,N-1)))
-		x = np.zeros((nx,N))
-		u = np.zeros((nu,N-1))
+		if(options['overloading']):
+			x = matrix_(np.zeros((nx,N)))
+			u = matrix_(np.zeros((nu,N-1)))
+		else:
+			x = np.zeros((nx,N))
+			u = np.zeros((nu,N-1))
 		xs = copy.deepcopy(x[:,0])
 		t1 = time.perf_counter(), time.process_time()
 		x, u  = trajoptMPCReference.SQP(x, u, N, dt, LINEAR_SYSTEM_SOLVER_METHOD = solver, options = options)
 		t2 = time.perf_counter(), time.process_time()
 
 		# Save state for display
-		type_cost=sys.argv[1]
+		# type_cost=sys.argv[1]
+		type_cost='urdf'
+
 		csv_file_path = f'data/{type_cost}/final_state.csv'
 		with open(csv_file_path, 'w', newline='\n') as file:
 			csv_writer = csv.writer(file)
 			csv_writer.writerows(x)
-
-		# if options["display"]:
-		# 	display(x, title="SQP Solver Method: " + solver.name)
 
 		J = 0
 		# Cost for last iteration/trajectory, sum over the horizon
 		for k in range(N-1):
 			J += trajoptMPCReference.cost.value(x[:,k], u[:,k])
 			print("x: ", x[:,k])
-			#saved_J.append([trajoptMPCReference.cost.value(x[:,k], u[:,k])])
 		J += trajoptMPCReference.cost.value(x[:,N-1], None)
-		#saved_J.append([trajoptMPCReference.cost.value(x[:,N-1], None)])
 
 		print("Cost [", J, "]")
 		print("Final State Error vs. Goal")
@@ -132,21 +85,21 @@ def runSQPExample(plant, cost, hard_constraints, soft_constraints, N, dt, solver
 	
 	error=runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
-
-	# print("---------------------------------")
-	# print("---------------------------------")
-	# print(" Solving Constrained Problem Hard")
-	# print("---------------------------------")
-	# trajoptMPCReference = TrajoptMPCReference(plant, cost, hard_constraints)
-	# runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
-
-	# print("---------------------------------")
-	# print("---------------------------------")
-	# print(" Solving Constrained Problem Soft")
-	# print("---------------------------------")
-	# trajoptMPCReference = TrajoptMPCReference(plant, cost, soft_constraints)
-	# runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
-
+	if hard_constraints is not None:
+		print("---------------------------------")
+		print("---------------------------------")
+		print(" Solving Constrained Problem Hard")
+		print("---------------------------------")
+		trajoptMPCReference = TrajoptMPCReference(plant, cost, hard_constraints)
+		runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
+		
+	if soft_constraints is not None:
+		print("---------------------------------")
+		print("---------------------------------")
+		print(" Solving Constrained Problem Soft")
+		print("---------------------------------")
+		trajoptMPCReference = TrajoptMPCReference(plant, cost, soft_constraints)
+		runSolversSQP(trajoptMPCReference, N, dt, solver_methods, options)
 
 	return error
 

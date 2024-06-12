@@ -369,7 +369,7 @@ class ArmCost(TrajoptCost):
 # For now works only with numpy, no overloading
 class UrdfCost(TrajoptCost):
 
-	def __init__(self,  plant: URDFPlant , Q_in: np.ndarray, QF_in: np.ndarray, R_in: np.ndarray, xg_in: np.ndarray, QF_start = None):
+	def __init__(self,  plant: URDFPlant , Q_in: np.ndarray, QF_in: np.ndarray, R_in: np.ndarray, xg_in: np.ndarray, QF_start = None, overloading=False):
 		self.plant=plant
 		self.Q = Q_in
 		self.QF = QF_in
@@ -383,10 +383,11 @@ class UrdfCost(TrajoptCost):
 		self.saved_hess=[]
 		self.n=self.plant.get_num_pos() # n joints
 		self.offsets=[np.matrix([[0,1,0,1]])] # May need to be updated if change in URDF
-		self.no_hess=[]
+		self.plant.rbdReference.overloading= overloading
+		self.overloading=overloading
 
 	def compute_J(self,q): # online value of the Jacobian
-		J=self.plant.rbdReference.Jacobian(q,self.offsets)
+		J=self.plant.rbdReference.Jacobian(q,offsets = self.offsets)
 		return J
 			
 	def value(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
@@ -396,24 +397,49 @@ class UrdfCost(TrajoptCost):
 		if not isinstance(u, type(None)):
 			cost += 0.5*np.matmul(u.transpose(),np.matmul(self.R,u))
 		self.saved_cost.append([cost]) 
-		return cost
+		if(self.overloading):
+			return np.float64(cost)
+		else:
+			return cost
 	
 	def delta_x(self, x: np.ndarray):
 		pos = self.plant.rbdReference.end_effector_positions(x[:self.n],self.offsets)
-		vel = (self.compute_J(x[:self.n])@x[self.n:]).transpose() # v=J*qd
-		X = np.array(np.vstack((pos,vel))).reshape(4,)
+		if(self.overloading):
+			vel = (self.compute_J(x[:self.n])@x[self.n:]).reshape(self.n,1)# v=J*qd
+			# print("Pos\n", pos)
+			# print("vel\n", vel)
+			X = matrix_((np.vstack((pos,vel))).reshape(2*self.n,))
+		else:
+			vel = (self.compute_J(x[:self.n])@x[self.n:]).transpose() # v=J*qd
+			X = np.array(np.vstack((pos,vel))).reshape(2*self.n,)
+			# print("Pos\n", pos)
+			# print("vel\n", vel)
+
 		return X - self.xg
 		
 	def gradient(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
 		dx=self.delta_x(x)
 		currQ = self.get_currQ(u,timestep)
 		J_tot=self.plant.rbdReference.jacobian_tot_state(x[:self.n],x[self.n:])
-		top=np.array(dx.transpose()@currQ@J_tot).reshape(2*self.n,)
-		if u is None:
-			grad= top
+		if(self.overloading):
+			top=(dx.transpose()@currQ@J_tot).reshape(2*self.n,)
+			if u is None:
+				grad= top
+			else:
+				bottom = (u.transpose()@self.R).reshape(self.n,)
+				# print("bottom\n", bottom.shape)
+				# print("u\n", u.transpose().shape)
+				# print("R\n", self.R)
+				grad= matrix_(np.hstack((top,bottom)))
 		else:
-			bottom = (np.matmul(u.transpose(),self.R))
-			grad= np.hstack((top,bottom))
+			top=np.array(dx.transpose()@currQ@J_tot).reshape(2*self.n,)
+			if u is None:
+				grad= top
+			else:
+			
+				bottom = (np.matmul(u.transpose(),self.R))
+
+				grad= np.hstack((top,bottom))
 		self.saved_grad.append(grad)
 		return grad
 
@@ -421,49 +447,53 @@ class UrdfCost(TrajoptCost):
 		dJdq=self.plant.rbdReference.dJdq(q, self.offsets)
 		ddJdq = self.plant.rbdReference.d2Jdq2(q, self.offsets)
 		n=self.n
-		print("shape dJdq\n", dJdq.shape)
-
-		A=np.hstack((dJdq, np.zeros((2*n,n)))).reshape(2, 2, 2*n)
-		B= np.hstack((dJdq,ddJdq)).reshape(2, 2, 2*n)
-		dJtotdq = np.zeros((4, 4, 2*n))
-		dJtotdq[0:2, 0:2, :] = A #top left
-		dJtotdq[0:2, 2:4, :] = np.zeros((2, n, 2*n)) #top right
-		dJtotdq[2:4, 0:2, :] = B #bottom left
-		dJtotdq[2:4, 2:4, :] = A #bottom right
+		if(self.overloading):
+			A=matrix_(np.hstack((dJdq, np.zeros((2*n,n)))).reshape(n, n, 2*n))
+			B= matrix_(np.hstack((dJdq,ddJdq)).reshape(n, n, 2*n))
+			dJtotdq = matrix_(np.zeros((2*n, 2*n, 2*n)))
+			dJtotdq[0:n, 0:n, :] = A #top left
+			dJtotdq[0:n, n:2*n, :] = matrix_(np.zeros((n, n, 2*n))) #top right
+			dJtotdq[n:2*n, 0:n, :] = B #bottom left
+			dJtotdq[n:2*n, n:2*n, :] = A #bottom right
+		else:
+			A=np.hstack((dJdq, np.zeros((2*n,n)))).reshape(n, n, 2*n)
+			B= np.hstack((dJdq,ddJdq)).reshape(n, n, 2*n)
+			dJtotdq = np.zeros((2*n, 2*n, 2*n))
+			dJtotdq[0:n, 0:n, :] = A #top left
+			dJtotdq[0:n, n:2*n, :] = np.zeros((n, n, 2*n)) #top right
+			dJtotdq[n:2*n, 0:n, :] = B #bottom left
+			dJtotdq[n:2*n, n:2*n, :] = A #bottom right
 		return dJtotdq
 	
 	def hessian(self, x: np.ndarray, u: np.ndarray = None, timestep: int = None):
-		if self.no_hess:
-			n= 2*self.n if (u is None) else 3*self.n
-			return np.zeros((n,n))
+		q=x[:self.n]
+		qd=x[self.n:]
+		nx = self.Q.shape[0]
+		nu = self.R.shape[0]
+		Jtot=self.plant.rbdReference.jacobian_tot_state(q,qd, self.offsets)
+		
+		dJtotdq=self.dJtotdq(q,qd)
+		currQ = self.get_currQ(u,timestep)
+		dx=self.delta_x(x).reshape((2*self.n,1))
+		hess1=((currQ@Jtot).T)@Jtot
+		#hess2=(dx.transpose()@currQ@dJtotdq).reshape((4,4))
+		hess_x=hess1 #+hess2
+		# hess_x=np.zeros((4,4))
+		if u is None:
+			hess= hess_x
 		else:
-			q=x[:self.n]
-			qd=x[self.n:]
-			n=self.n
-			#nx = self.Q.shape[0]
-			#nu = self.R.shape[0]
-			Jtot=self.plant.rbdReference.jacobian_tot_state(q,qd, self.offsets) # size (4,2*n)
-			#dJtotdq=self.dJtotdq(q,qd)
-			currQ = self.get_currQ(u,timestep)
-			dx=self.delta_x(x).reshape((4,1))
-			hess1=((currQ@Jtot).transpose())@Jtot
-			# print("dJtot\n",dJtotdq.shape )
-			# print("currQ\n",currQ.shape )
-			# print("dx\n",dx.shape )
-			#hess2=(currQ@dJtotdq)#.reshape((2*n,2*n))
-			hess_x=hess1 # +hess2
-			# hess_x=np.zeros((4,4))
-			if u is None:
-				hess= hess_x
+			if(self.overloading):
+				top = matrix_(np.hstack((hess_x,np.zeros((nx,nu)))))
+				bottom = matrix_(np.hstack((np.zeros((nu,nx)),self.R)))
+				hess= matrix_(np.vstack((top,bottom)))
 			else:
-				top = np.hstack((hess_x,np.zeros((2*n,n))))
-				bottom = np.hstack((np.zeros((n,2*n)),self.R))
+				top = np.hstack((hess_x,np.zeros((nx,nu))))
+				bottom = np.hstack((np.zeros((nu,nx)),self.R))
 				hess= np.vstack((top,bottom))
-			self.saved_hess.append(hess)
-			return hess
-		
-		
-		
+		self.saved_hess.append(hess)
+		# n= 4 if (u is None) else 6
+		# return np.zeros((n,n))
+		return hess
 
 
 	# SIMPLIFIED HESSIAN => DOESN'T WORK
