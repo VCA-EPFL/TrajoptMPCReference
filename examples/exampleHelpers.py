@@ -87,7 +87,7 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 
 		# Save state for display
 		type_cost=sys.argv[1]
-		csv_file_path = f'data/{type_cost}/multiple_test/final_state_{i}.csv'
+		csv_file_path = f'data/multiple_test/final_state_{i}.csv'
 		with open(csv_file_path, 'w', newline='\n') as file:
 			csv_writer = csv.writer(file)
 			csv_writer.writerows(x)
