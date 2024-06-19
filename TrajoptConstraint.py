@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List
+from overloading import matrix_
 
 class BoxConstraint:
 	def __init__(self, constraint_size: int = 0, num_timesteps: int = 0, upper_bounds: List[float] = [], lower_bounds: List[float] = [], mode: str = "NONE", options = {}):
@@ -17,10 +18,11 @@ class BoxConstraint:
 		self.bounds[:self.constraint_size] = lower_bounds
 		self.bounds[self.constraint_size:] = upper_bounds
 		# mode
+		self.overloading=options['overloading']
 		self.validate_constraint_mode(mode, options)
-		self.quadratic_penalty_mu = self.options['quadratic_penalty_mu_init'] * np.ones((2*self.constraint_size,self.num_timesteps))
+		self.quadratic_penalty_mu = self.options['quadratic_penalty_mu_init']*np.ones((2*self.constraint_size,self.num_timesteps))
 		self.augmented_lagrangian_lambda = np.zeros((2*self.constraint_size,self.num_timesteps))
-		self.augmented_lagrangian_phi = self.options['augmentated_lagrangian_phi_init'] * np.ones((2*self.constraint_size,self.num_timesteps))
+		self.augmented_lagrangian_phi = self.options['augmentated_lagrangian_phi_init']*np.ones((2*self.constraint_size,self.num_timesteps))
 
 	def is_hard_constraint_mode(self, mode: str = None):
 		if mode is None:
@@ -53,7 +55,11 @@ class BoxConstraint:
 			mode = self.mode
 		delta_lb = xk[:self.constraint_size] - self.bounds[:self.constraint_size]
 		delta_ub = self.bounds[self.constraint_size:] - xk[:self.constraint_size]
-		full_value = np.vstack((delta_lb,delta_ub))
+		if self.overloading:
+			full_value = matrix_.vstack(delta_lb,delta_ub)
+		else:
+			full_value = np.vstack((delta_lb,delta_ub))
+
 		# return hard constraint value
 		if self.is_hard_constraint_mode(mode):
 			if mode == "ACTIVE_SET":
@@ -67,13 +73,16 @@ class BoxConstraint:
 					print("[!]ERROR Need Timestep for Soft Constraint Mode")
 					exit()
 				# squared term
-				sq_err = np.square(full_value)
-				# value = np.sum(np.dot(self.quadratic_penalty_mu[:,timestep],sq_err))
-				value = np.sum(self.quadratic_penalty_mu[:,timestep].dot(sq_err))
+				if(self.overloading):
+					sq_err = matrix_(np.square(full_value))
+					value = matrix_(np.sum(self.quadratic_penalty_mu[:,timestep].dot(sq_err)))
+				else:
+					sq_err = np.square(full_value)
+					value = np.sum(self.quadratic_penalty_mu[:,timestep].dot(sq_err))
 				# AL term
 				if mode == "AUGMENTED_LAGRANGIAN":
 					# value += np.dot(self.augmented_lagrangian_lambda[:,timestep],full_value)
-					value += self.augmented_lagrangian_lambda[:,timestep].dot(full_value)
+					value = value+(self.augmented_lagrangian_lambda[:,timestep]@full_value)
 				return value
 			elif mode == "ADMM_PROJECTION":
 				print("[!] ERROR NOT IMPLEMENTED YET")
@@ -81,6 +90,7 @@ class BoxConstraint:
 				# TBD
 
 	def jacobian(self, xk: np.ndarray, timestep: int = None, mode: str = None):
+
 		if mode is None:
 			mode = self.mode
 		# compute jacobian
@@ -126,6 +136,8 @@ class BoxConstraint:
 		return max_value
 
 	def update_soft_constraint_constants(self, x: np.ndarray):
+		print("Constraint update_soft_constraint_constants ")
+
 		# loop through the constaints at each timestep
 		mu_max_flag = True
 		for timestep in range(self.num_timesteps):
@@ -210,14 +222,21 @@ class TrajoptConstraint:
 			if ck is None:
 				ck = val
 			else:
-				ck = np.vstack((ck,val))
+				if(self.overloading):
+					ck = matrix_.vstack(ck,val)
+				else:
+					ck = np.vstack((ck,val))
 			constraint_index += 2*self.nv
 		if (not (self.torque_limits is None)) and self.torque_limits.is_hard_constraint_mode() and timestep < self.num_timesteps - 1:
 			val = self.torque_limits.value(uk, timestep = timestep)
 			if ck is None:
 				ck = val
 			else:
-				ck = np.vstack((ck,val))
+				if(self.overloading):
+					ck = matrix_.vstack(ck,val)
+				else:
+					ck = np.vstack((ck,val))
+
 		return ck
 
 	def jacobian_hard_constraints(self, xk: np.ndarray, uk: np.ndarray = None, timestep: int = None):
@@ -235,14 +254,23 @@ class TrajoptConstraint:
 			if Ck is None:
 				Ck = jac
 			else:
-				Ck = np.vstack((Ck,jac))
+				if(self.overloading):
+
+					Ck = matrix_.vstack(Ck,jac)
+				else:
+					Ck = np.vstack((Ck,jac))
+
 			constraint_index += 2*self.nv
 		if (not (self.torque_limits is None)) and self.torque_limits.is_hard_constraint_mode():
 			jac = self.torque_limits.jacobian(uk, timestep = timestep)
 			if Ck is None:
 				Ck = jac
 			else:
-				Ck = np.vstack((Ck,jac))
+				if(self.overloading):
+					Ck = matrix_.vstack(Ck,jac)
+				else:
+					Ck = np.vstack((Ck,jac))
+
 		return Ck
 
 	def len_or_none(self, x):
@@ -291,13 +319,21 @@ class TrajoptConstraint:
 			if jacobian is None:
 				jacobian = jk
 			else:
-				jacobian = np.vstack((jacobian,jk))
+				if(self.overloading):
+					jacobian = matrix_.vstack(jacobian,jk)
+				else:
+					jacobian = np.vstack((jacobian,jk))
+
 		if (not (self.torque_limits is None)) and self.torque_limits.is_soft_constraint_mode() and timestep < self.num_timesteps - 1:
 			jk = self.torque_limits.jacobian(uk, timestep = timestep)
 			if jacobian is None:
 				jacobian = jk
 			else:
-				jacobian = np.vstack((jacobian,jk))
+				if(self.overloading):
+					jacobian = matrix_.vstack(jacobian,jk)
+				else:
+					jacobian = np.vstack((jacobian,jk))
+
 		return jacobian
 
 	def total_soft_constraints(self, timestep: int = None):

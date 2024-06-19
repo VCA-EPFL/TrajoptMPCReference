@@ -12,6 +12,7 @@ class RBDReference:
         # vec x = [wx   0]
         #         [vox wx]
         #(crm in spatial_v2_extended)
+        if(self.)
         v_cross = np.array([0, -v[2], v[1], 0, 0, 0,
                             v[2], 0, -v[0], 0, 0, 0,
                             -v[1], v[0], 0, 0, 0, 0,

@@ -2,12 +2,12 @@ import importlib
 import numpy as np
 import copy
 import enum
-from TrajoptPlant import TrajoptPlant, DoubleIntegratorPlant, PendulumPlant, CartPolePlant, URDFPlant
+from TrajoptPlant import TrajoptPlant,URDFPlant
 from TrajoptCost import TrajoptCost, QuadraticCost
 from TrajoptConstraint import TrajoptConstraint, BoxConstraint
 PCG = importlib.import_module("GBD-PCG-Python").PCG
 np.set_printoptions(precision=4, suppress=True, linewidth = 100)
-
+from overloading import matrix_
 
 
 class SQPSolverMethods(enum.Enum):
@@ -27,6 +27,7 @@ class MPCSolverMethods(enum.Enum):
     QP_PCG_SS = "QP-PCG-SS"
 
 class TrajoptMPCReference:
+    
     def __init__(self, plantObj:TrajoptPlant, costObj: TrajoptCost, constraintObj: TrajoptConstraint = None):
         if (not issubclass(type(plantObj),TrajoptPlant) or not issubclass(type(costObj),TrajoptCost)):
             print("Must pass in a TrajoptPlant and TrajoptCost object to TrajoptMPCReference.")
@@ -39,7 +40,44 @@ class TrajoptMPCReference:
         self.plant = plantObj
         self.cost = costObj
         self.other_constraints = constraintObj
-        
+
+        self.soft_constraint_iteration=0
+        self.line_search_iteration =0
+        self.iteration=0
+        self.n_inner_iter=0
+
+        self.saved_Pinv=[]
+        self.saved_inner_traces=[]
+        self.trace=[]
+        self.saved_G=[]
+        self.saved_invG=[]
+        self.saved_c=[]
+        self.saved_g=[]
+        self.saved_C=[]
+        self.saved_tot_cost=[]
+        self.saved_J_tot_constraints=[]
+        self.saved_jacobian_hard_constraints=[]
+        self.saved_jacobian_soft_constraints=[]
+        self.saved_Ak=[] # plant integrator output 1 (return gradient)
+        self.saved_Bk=[] # plant integrator output 2 (return gradient)
+        self.saved_xkp1=[] # plant integrator output 
+        self.saved_dxul=[]
+        self.saved_S=[]
+        self.saved_gamma=[]
+        self.saved_l=[]
+        self.saved_invG=[]
+
+
+
+        self.saved_x=[]
+        self.saved_u=[]
+
+        self.exit_soft=0
+        self.exit_sqp=0
+        self.singular=False
+
+
+
 
     def update_cost(self, costObj: TrajoptCost):
         assert issubclass(type(costObj),TrajoptCost), "Must pass in a TrajoptCost object to update_cost in TrajoptMPCReference."
@@ -59,6 +97,7 @@ class TrajoptMPCReference:
         options.setdefault('max_iter_linSys', 100)
         options.setdefault('DEBUG_MODE_linSys', False)
         options.setdefault('RETURN_TRACE_linSys', False)
+        options.setdefault('overloading',self.plant.rbdReference.overloading)
         # DDP/SQP options
         options.setdefault('exit_tolerance_SQP_DDP', 1e-6)
         options.setdefault('max_iter_SQP_DDP', 100)
@@ -91,80 +130,153 @@ class TrajoptMPCReference:
         nu = self.plant.get_num_cntrl()
         nx = nq + nv
         n = nx + nu
-        # G,g are cost hessian and gradient with n*(N-1) + nx state and control variables 
-        total_states_controls = n*(N-1) + nx
-        G = np.zeros((total_states_controls, total_states_controls))
-        g = np.zeros((total_states_controls, 1))
-        # C,c are constraint gradient (Jacobian) and value and depends on both the
-        #     N-1 dynamics constarints, the initial state constaint, and any additional constraints
-        total_dynamics_intial_state_constraints = nx*N
-        total_other_constraints = self.other_constraints.total_hard_constraints(x, u)
-        total_constraints = total_dynamics_intial_state_constraints + total_other_constraints
-        C = np.zeros((total_constraints, total_states_controls))
-        c = np.zeros((total_constraints, 1))
+        if(self.plant.rbdReference.overloading):
+        
+            total_states_controls = n*(N-1) + nx
+            G = matrix_(np.zeros((total_states_controls, total_states_controls)))
+            g = matrix_(np.zeros((total_states_controls, 1)))
+            total_dynamics_intial_state_constraints = nx*N
+            total_other_constraints = self.other_constraints.total_hard_constraints(x, u)
+            total_constraints = total_dynamics_intial_state_constraints+total_other_constraints
+            C = matrix_(np.zeros((total_constraints, total_states_controls)))
+            c = matrix_(np.zeros((total_constraints, 1)))
 
-        # start filling from the top left of the matricies (and top of vectors)
-        constraint_index = 0
-        state_control_index = 0
-        # begin with the initial state constraint
-        C[constraint_index:constraint_index + nx, state_control_index:state_control_index + nx] = np.eye(nx)
-        c[constraint_index:constraint_index + nx, 0] = x[:,0] - xs
-        constraint_index += nx
-        for k in range(N-1):
-            # first load in the cost hessian and gradient
-            G[state_control_index:state_control_index + n, \
-              state_control_index:state_control_index + n] = self.cost.hessian(x[:,k], u[:,k], k)
-            g[state_control_index:state_control_index + n, 0] = self.cost.gradient(x[:,k], u[:,k], k)
-            # add soft constraints if applicable
-            if self.other_constraints.total_soft_constraints(timestep = k) > 0:
-                gck = self.other_constraints.jacobian_soft_constraints(x[:,k], u[:,k], k)
-                g[state_control_index:state_control_index + n, :] += gck
-                G[state_control_index:state_control_index + n, \
-                  state_control_index:state_control_index + n] += np.outer(gck,gck)
-
-            # then load in the constraints for this timestep starting with dynamics
-            Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True)
-            C[constraint_index:constraint_index + nx, \
-              state_control_index:state_control_index + n + nx] = np.hstack((-Ak, -Bk, np.eye(nx)))
-            xkp1 = self.plant.integrator(x[:,k], u[:,k], dt)
-            c[constraint_index:constraint_index + nx, 0] = x[:,k+1] - xkp1
+            constraint_index = 0
+            state_control_index = 0
+            C[constraint_index:constraint_index + nx, state_control_index:state_control_index + nx] = matrix_(np.eye(nx))
+            c[constraint_index:constraint_index + nx, 0] = x[:,0]-xs
             constraint_index += nx
-            
-            # and then other constraints
-            if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, k):
-                jac = self.other_constraints.jacobian_hard_constraints(x[:,k], u[:,k], k)
-                val = self.other_constraints.value_hard_constraints(x[:,k], u[:,k], k)
+            for k in range(N-1):
+                hess=self.cost.hessian(x[:,k], u[:,k], k,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                grad=self.cost.gradient(x[:,k], u[:,k], k, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                G[state_control_index:state_control_index + n, \
+                state_control_index:state_control_index + n] = hess
+                g[state_control_index:state_control_index + n, 0] = grad
+                if self.other_constraints.total_soft_constraints(timestep = k) > 0:
+                    gck = self.other_constraints.jacobian_soft_constraints(x[:,k], u[:,k], k)
+                    g[state_control_index:state_control_index + n, :] = g[state_control_index:state_control_index + n, :]+gck
+                    G[state_control_index:state_control_index + n, \
+                    state_control_index:state_control_index + n] = G[state_control_index:state_control_index + n, state_control_index:state_control_index + n]+matrix_(np.outer(gck,gck))
+                    self.saved_J_tot_constraints.append({'value': gck, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
+                Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                C[constraint_index:constraint_index + nx, \
+                state_control_index:state_control_index + n + nx] = matrix_.hstack(-Ak, -Bk, matrix_(np.eye(nx)))
+                xkp1 = self.plant.integrator(x[:,k], u[:,k], dt, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                c[constraint_index:constraint_index + nx, 0] = x[:,k+1]-xkp1
+                constraint_index += nx
+
+                self.saved_Ak.append({'value': Ak,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_Bk.append({'value': Bk,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_xkp1.append({'value': xkp1, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                
+                if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, k):
+                    jac = self.other_constraints.jacobian_hard_constraints(x[:,k], u[:,k], k)
+                    val = self.other_constraints.value_hard_constraints(x[:,k], u[:,k], k)
+                    self.saved_jacobian_hard_constraints.append({'value': jac, 'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                    if val is not None and len(val):
+                        num_active_const_k = len(val)
+                        C[constraint_index:constraint_index + num_active_const_k, \
+                        state_control_index:state_control_index + n] = matrix_.reshape(jac,(num_active_const_k,n))
+                        c[constraint_index:constraint_index + num_active_const_k] = matrix_.reshape(val, (num_active_const_k,1))
+                        constraint_index += num_active_const_k
+                
+                state_control_index += n
+            hess= self.cost.hessian(x[:,N-1], timestep = N-1, iter_1= self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            grad= self.cost.gradient(x[:,N-1], timestep = N-1,iter_1= self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            G[state_control_index:state_control_index + nx, \
+            state_control_index:state_control_index + nx] =hess
+            g[state_control_index:state_control_index + nx, 0] = grad
+           
+            if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
+                gcNm1 = self.other_constraints.jacobian_soft_constraints(x[:,N-1], timestep = N-1)
+                g[state_control_index:state_control_index + nx, :] = g[state_control_index:state_control_index + nx, :]+gcNm1
+                G[state_control_index:state_control_index + nx, \
+                state_control_index:state_control_index + nx] = G[state_control_index:state_control_index + nx, state_control_index:state_control_index + nx]+matrix_(np.outer(gcNm1,gcNm1))
+                self.saved_jacobian_soft_constraints.append({'value': gcNm1, 'iteration':self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
+            if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, N-1):
+                jac = self.other_constraints.jacobian_hard_constraints(x[:,N-1], timestep = N-1)
+                val = self.other_constraints.value_hard_constraints(x[:,N-1], timestep = N-1)
+                self.saved_jacobian_hard_constraints.append({'value': jac,'iteration': self.iteration,'outer_iteration':self.jacobian_hard_constraints, 'line_search_iteration': self.line_search_iteration})
+
                 if val is not None and len(val):
                     num_active_const_k = len(val)
                     C[constraint_index:constraint_index + num_active_const_k, \
-                      state_control_index:state_control_index + n] = np.reshape(jac, (num_active_const_k,n))
-                    c[constraint_index:constraint_index + num_active_const_k] = np.reshape(val, (num_active_const_k,1))
-                    constraint_index += num_active_const_k
-            
-            # then update the state_control_index
-            state_control_index += n
+                    state_control_index:state_control_index + nx] = matrix_.reshape(jac, (num_active_const_k,nx))
+                    c[constraint_index:constraint_index + num_active_const_k] = matrix_.reshape(val, (num_active_const_k,1))
 
-        # finish with the final cost
-        G[state_control_index:state_control_index + nx, \
-          state_control_index:state_control_index + nx] = self.cost.hessian(x[:,N-1], timestep = N-1)
-        g[state_control_index:state_control_index + nx, 0] = self.cost.gradient(x[:,N-1], timestep = N-1)
-        # add soft constraints if applicable
-        if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
-            gcNm1 = self.other_constraints.jacobian_soft_constraints(x[:,N-1], timestep = N-1)
-            g[state_control_index:state_control_index + nx, :] += gcNm1
+        else:
+                    
+            total_states_controls = n*(N-1) + nx
+            G = np.zeros((total_states_controls, total_states_controls))
+            g = np.zeros((total_states_controls, 1))
+            total_dynamics_intial_state_constraints = nx*N
+            total_other_constraints = self.other_constraints.total_hard_constraints(x, u)
+            total_constraints = total_dynamics_intial_state_constraints + total_other_constraints
+            C = np.zeros((total_constraints, total_states_controls))
+            c = np.zeros((total_constraints, 1))
+
+            constraint_index = 0
+            state_control_index = 0
+            C[constraint_index:constraint_index + nx, state_control_index:state_control_index + nx] = np.eye(nx)
+            c[constraint_index:constraint_index + nx, 0] = x[:,0]-xs
+            constraint_index += nx
+            for k in range(N-1):
+                G[state_control_index:state_control_index + n, \
+                state_control_index:state_control_index + n] = self.cost.hessian(x[:,k], u[:,k], k,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                g[state_control_index:state_control_index + n, 0] = self.cost.gradient(x[:,k], u[:,k], k,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                if self.other_constraints.total_soft_constraints(timestep = k) > 0:
+                    gck = self.other_constraints.jacobian_soft_constraints(x[:,k], u[:,k], k)
+                    g[state_control_index:state_control_index + n, :] = g[state_control_index:state_control_index + n, :]+gck
+                    G[state_control_index:state_control_index + n, \
+                    state_control_index:state_control_index + n] += np.outer(gck,gck)
+                    self.saved_J_tot_constraints.append({'value': gck, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration,'line_search_iteration':  self.line_search_iteration})
+                
+                Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True, iter_1= self.iteration, iter_2=self.soft_constraint_iteration)
+                C[constraint_index:constraint_index + nx, \
+                state_control_index:state_control_index + n + nx] = np.hstack((-Ak, -Bk, np.eye(nx)))
+                xkp1 = self.plant.integrator(x[:,k], u[:,k], dt,iter_1=self.iteration, iter_2=self.soft_constraint_iteration)
+                c[constraint_index:constraint_index + nx, 0] = x[:,k+1]-xkp1
+                constraint_index += nx
+                
+                self.saved_Ak.append({'value': Ak,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_Bk.append({'value':  Bk, 'iteration':self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_xkp1.append({'value': xkp1, 'iteration':self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
+                if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, k):
+                    jac = self.other_constraints.jacobian_hard_constraints(x[:,k], u[:,k], k)
+                    val = self.other_constraints.value_hard_constraints(x[:,k], u[:,k], k)
+                    self.saved_jacobian_hard_constraints.append({'value': jac,'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
+                    if val is not None and len(val):
+                        num_active_const_k = len(val)
+                        C[constraint_index:constraint_index + num_active_const_k, \
+                        state_control_index:state_control_index + n] = np.reshape(jac, (num_active_const_k,n))
+                        c[constraint_index:constraint_index + num_active_const_k] = np.reshape(val, (num_active_const_k,1))
+                        constraint_index += num_active_const_k
+                
+                state_control_index += n
+
             G[state_control_index:state_control_index + nx, \
-              state_control_index:state_control_index + nx] += np.outer(gcNm1,gcNm1)
+            state_control_index:state_control_index + nx] = self.cost.hessian(x[:,N-1], timestep = N-1, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            g[state_control_index:state_control_index + nx, 0] = self.cost.gradient(x[:,N-1], timestep = N-1, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
+                gcNm1 = self.other_constraints.jacobian_soft_constraints(x[:,N-1], timestep = N-1)
+                g[state_control_index:state_control_index + nx, :] = g[state_control_index:state_control_index + nx, :]+gcNm1
+                G[state_control_index:state_control_index + nx, \
+                state_control_index:state_control_index + nx] = G[state_control_index:state_control_index + nx, state_control_index:state_control_index + nx]+np.outer(gcNm1,gcNm1)
+                self.saved_jacobian_soft_constraints.append({'value': gcNm1, 'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
 
-        # and the final constraint
-        if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, N-1):
-            jac = self.other_constraints.jacobian_hard_constraints(x[:,N-1], timestep = N-1)
-            val = self.other_constraints.value_hard_constraints(x[:,N-1], timestep = N-1)
-            if val is not None and len(val):
-                num_active_const_k = len(val)
-                C[constraint_index:constraint_index + num_active_const_k, \
-                  state_control_index:state_control_index + nx] = np.reshape(jac, (num_active_const_k,nx))
-                c[constraint_index:constraint_index + num_active_const_k] = np.reshape(val, (num_active_const_k,1))
-
+            if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, N-1):
+                jac = self.other_constraints.jacobian_hard_constraints(x[:,N-1], timestep = N-1)
+                val = self.other_constraints.value_hard_constraints(x[:,N-1], timestep = N-1)
+                self.saved_jacobian_hard_constraints.append({'value': jac, 'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                if val is not None and len(val):
+                    num_active_const_k = len(val)
+                    C[constraint_index:constraint_index + num_active_const_k, \
+                    state_control_index:state_control_index + nx] = np.reshape(jac, (num_active_const_k,nx))
+                    c[constraint_index:constraint_index + num_active_const_k] = np.reshape(val, (num_active_const_k,1))
         return G, g, C, c
 
     def totalHardConstraintViolation(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float, mode = None):
@@ -172,39 +284,40 @@ class TrajoptMPCReference:
         if mode == "MAX":
             mode_func = max
         # first do initial state and dynamics
-        x_err = x[:,0] - xs
+        x_err = x[:,0]-xs
         err = list(map(abs,x_err))
         c = mode_func(err)
         for k in range(N-1):
-            xkp1 = self.plant.integrator(x[:,k], u[:,k], dt)
-            x_err = x[:,k+1] - xkp1
-            c += mode_func(list(map(abs,x_err)))
+            xkp1 = self.plant.integrator(x[:,k], u[:,k], dt,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            x_err = x[:,k+1]-xkp1
+            c = c+mode_func(list(map(abs,x_err)))
         # then do all other constraints
         if self.other_constraints.total_hard_constraints(x, u) > 0:
             for k in range(N-1):
                 if self.other_constraints.total_hard_constraints(x, u, k):
                     c_err = self.other_constraints.value_hard_constraints(x[:,k], u[:,k], k)
-                    c += mode_func(list(map(abs,c_err)))
+                    c = c+mode_func(list(map(abs,c_err)))
             if self.other_constraints.total_hard_constraints(x, u, N-1):
                 c_err = self.other_constraints.value_hard_constraints(x[:,N-1], N-1)
-                c += mode_func(list(map(abs,c_err)))
+                c = c+mode_func(list(map(abs,c_err)))
         return c
 
     def totalCost(self, x: np.ndarray, u: np.ndarray, N: int):
         
         J = 0
         for k in range(N-1):
-
-            J += self.cost.value(x[:,k], u[:,k], k)
-        
-        J += self.cost.value(x[:,N-1], timestep = N-1)
+            cost=self.cost.value(x[:,k], u[:,k], k, self.iteration, self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            J = J+cost
+        J = J+self.cost.value(x[:,N-1], timestep = N-1, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
         # add soft constraints if applicable
         if self.other_constraints.total_soft_constraints() > 0:
             for k in range(N-1):
-                J += self.other_constraints.value_soft_constraints(x[:,k], u[:,k], k)
-            J += self.other_constraints.value_soft_constraints(x[:,N-1], timestep = N-1)
+                J = J+self.other_constraints.value_soft_constraints(x[:,k], u[:,k], k)
+            J = J+self.other_constraints.value_soft_constraints(x[:,N-1], timestep = N-1)
         
+        self.saved_tot_cost.append({'value': J,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
         return J
+
 
     def solveKKTSystem(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float, rho: float = 0.0, options = {}):
         nq = self.plant.get_num_pos()
@@ -215,23 +328,42 @@ class TrajoptMPCReference:
         
         G, g, C, c = self.formKKTSystemBlocks(x, u, xs, N, dt)
 
+        self.saved_G.append({'value':G,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_g.append({'value':g,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_C.append({'value':C,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_c.append({'value':c,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
         total_dynamics_intial_state_constraints = nx*N
         total_other_constraints = self.other_constraints.total_hard_constraints(x, u)
-        total_constraints = total_dynamics_intial_state_constraints + total_other_constraints
-        BR = np.zeros((total_constraints,total_constraints))
+        total_constraints = total_dynamics_intial_state_constraints+total_other_constraints
 
-        if rho != 0:
-            G += rho * np.eye(G.shape[0])
+        if(self.plant.rbdReference.overloading):
+            BR = matrix_(np.zeros((total_constraints,total_constraints)))
 
-        KKT = np.hstack((np.vstack((G, C)),np.vstack((C.transpose(), BR))))
-        kkt = np.vstack((g, c))
+            if rho != 0:
+                G = G+(rho*matrix_(np.eye(G.shape[0])))
 
-        try:
-            dxul = np.linalg.solve(KKT, kkt)
-        except:
-            if options.get('DEBUG_MODE'):
-                print("Warning singular KKT system -- solving with least squares.")
-            dxul, _, _, _ = np.linalg.lstsq(KKT, kkt, rcond=None)
+            KKT = matrix_.hstack(matrix_.vstack(G, C),matrix_.vstack(C.transpose(), BR))
+            kkt = matrix_.vstack(g, c)
+
+            dxul, self.singular= matrix_.linalg_solve(KKT, kkt)
+            
+
+        else:
+            BR = np.zeros((total_constraints,total_constraints))
+
+            if rho != 0:
+                G = G+(rho * np.eye(G.shape[0]))
+
+            KKT = np.hstack((np.vstack((G, C)),np.vstack((C.transpose(), BR))))
+            # KKT = np.hstack((np.vstack((G, C)),np.vstack((C.transpose(), BR))))
+            kkt = np.vstack((g, c))
+
+            try:
+                dxul = np.linalg.solve(KKT, kkt)
+            except:
+                self.singular= True #Warning singular KKT system -- solving with least squares
+                dxul, _, _, _ = np.linalg.lstsq(KKT, kkt, rcond=None)
 
         return dxul
 
@@ -242,43 +374,92 @@ class TrajoptMPCReference:
         nx = nq + nv
         
         G, g, C, c = self.formKKTSystemBlocks(x, u, xs, N, dt)
+
+        self.saved_G.append({'value': G,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_g.append({'value': g,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_C.append({'value': C,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_c.append({'value': c,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        
         
         total_dynamics_intial_state_constraints = nx*N
         total_other_constraints = self.other_constraints.total_hard_constraints(x, u)
-        total_constraints = total_dynamics_intial_state_constraints + total_other_constraints
-        BR = np.zeros((total_constraints,total_constraints))
+        total_constraints = total_dynamics_intial_state_constraints+total_other_constraints
 
-        if rho != 0:
-            G += rho * np.eye(G.shape[0])
+        if(self.plant.rbdReference.overloading):
+            
+            BR = matrix_(np.zeros((total_constraints,total_constraints)))
 
-        invG = np.linalg.inv(G)
-        S = BR - np.matmul(C, np.matmul(invG, C.transpose()))
-        gamma = c - np.matmul(C, np.matmul(invG, g))
+            if rho != 0:
+                G = G+(rho*matrix_(np.eye(G.shape[0])))
+                       
+            invG = matrix_.invert_matrix(G)
+            self.saved_invG.append({'value': invG, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
 
-        if not use_PCG:
-            try:
-                l = np.linalg.solve(S, gamma)
-            except:
-                if options.get('DEBUG_MODE'):
-                    print("Warning singular Schur system -- solving with least squares.")
-                l, _, _, _ = np.linalg.lstsq(S, gamma, rcond=None)
-        else:
-            pcg = PCG(S, gamma, nx, N, options = options)
-            if 'guess' in options.keys():
-                pcg.update_guess(options['guess'])
-            if options.get('RETURN_TRACE'):
-                l, traces = pcg.solve()
+            # compute cond of G
+            S = BR-(C@(invG@C.transpose()))
+            gamma = c-(C@(invG@g))
+            self.saved_invG.append({'value': invG, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_S.append({'value': S, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_gamma.append({'value': gamma, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            if not use_PCG:
+                l = matrix_.linalg_solve(S, gamma)
             else:
-                l = pcg.solve()
+                pcg = PCG(S, gamma, nx, N, options = options, overloading= True)
+                if 'guess' in options.keys():
+                    pcg.update_guess(options['guess'])
+                l, traces = pcg.solve()
 
-        gCl = g - np.matmul(C.transpose(), l)
-        dxu = np.matmul(invG, gCl)
 
-        dxul = np.vstack((dxu,l))
+                self.saved_inner_traces.append((traces, self.iteration,self.soft_constraint_iteration, self.line_search_iteration))
+                self.saved_Pinv.append({'value': pcg.Pinv, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.n_inner_iter= len(traces)
+            self.saved_l.append({'value': l, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            
 
-        if options.get('RETURN_TRACE'):
-            return dxul, traces
+            gCl = g-(C.transpose()@l)
+            dxu = invG@gCl
+
+            dxul = matrix_.vstack(dxu,l)
         else:
+
+            BR = np.zeros((total_constraints,total_constraints))
+
+            if rho != 0:
+                G += rho * np.eye(G.shape[0])
+            
+            invG = np.linalg.inv(G)
+            S = BR - np.matmul(C, np.matmul(invG, C.transpose()))
+            gamma = c - np.matmul(C, np.matmul(invG, g))
+
+            self.saved_invG.append({'value': invG, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_S.append({'value': S, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_gamma.append({'value': gamma, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
+            if not use_PCG:
+                try:
+                    l = np.linalg.solve(S, gamma)
+                except:
+                    
+                    self.singular=True #Warning singular Schur system -- solving with least squares.")
+                    l, _, _, _ = np.linalg.lstsq(S, gamma, rcond=None)
+            else:
+                pcg = PCG(S, gamma, nx, N, options = options, overloading=False)
+                if 'guess' in options.keys():
+                    pcg.update_guess(options['guess'])
+
+                l, traces,  = pcg.solve()
+                self.saved_inner_traces.append((traces, self.iteration, self.soft_constraint_iteration))
+                self.saved_Pinv.append({'value': pcg.Pinv, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.n_inner_iter=len(traces)
+            
+            self.saved_l.append({'value': l, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            
+            gCl = g - np.matmul(C.transpose(), l)
+            dxu = np.matmul(invG, gCl)
+
+            dxul = np.vstack((dxu,l))
+
+
             return dxul
 
     def reduce_regularization(self, rho: float, drho: float, options: dict):
@@ -294,17 +475,14 @@ class TrajoptMPCReference:
             drho = max(drho*options['rho_factor_SQP_DDP'], options['rho_factor_SQP_DDP'])
             rho = max(rho*drho, options['rho_min_SQP_DDP'])
             if rho > options['rho_max_SQP_DDP']:
-                if options['DEBUG_MODE_SQP_DDP']:
-                    print("Exiting for max_rho")
+                self.exit_sqp= 2 # Exiting for max_rho
                 exit_flag = True
         elif delta_J < options['exit_tolerance_SQP_DDP']:
-            if options['DEBUG_MODE_SQP_DDP']:
-                print("Exiting for exit_tolerance_SQP_DDP")
+            self.exit_sqp= 1 # Exiting for exit_tolerance_SQP_DDP
             exit_flag = True
         
         if iteration == options['max_iter_SQP_DDP'] - 1:
-            if options['DEBUG_MODE_SQP_DDP']:
-                print("Exiting for max_iter")
+            self.exit_sqp=3 # Exiting for max_iter
             exit_flag = True
         else:
             iteration += 1
@@ -316,14 +494,14 @@ class TrajoptMPCReference:
         max_c = self.other_constraints.max_soft_constraint_value(x,u)
         if max_c < options['exit_tolerance_softConstraints']:
 
-            if options['DEBUG_MODE_Soft_Constraints']:
-                print("Exiting for Soft Constraint Convergence")
+            # if options['DEBUG_MODE_Soft_Constraints']:
+            self.exit_soft = 1 # OUTER LOOP: Exiting for Soft Constraint Convergence
             exit_flag = True
         # check for exit for iterations
         if iteration == options['max_iter_softConstraints'] - 1:
 
-            if options['DEBUG_MODE_Soft_Constraints']:
-                print("Exiting for Soft Constraint Max Iters")
+            # if options['DEBUG_MODE_Soft_Constraints']:
+            self.exit_soft = 2 # OUTER LOOP: Exiting for Soft Constraint Max Iters
             exit_flag = True
         else:
             iteration += 1
@@ -332,8 +510,8 @@ class TrajoptMPCReference:
             all_mu_over_limit_flag = self.other_constraints.update_soft_constraint_constants(x,u)
             # check if we need to exit for mu over the limit
             if all_mu_over_limit_flag:
-                if options['DEBUG_MODE_Soft_Constraints']:
-                    print("Exiting for Mu over limit for all soft constraints")
+                # if options['DEBUG_MODE_Soft_Constraints']:
+                self.exit_soft = 3 # OUTER LOOP: Exiting for Mu over limit for all soft constraints
                 exit_flag = True
         return exit_flag, iteration
 
@@ -357,8 +535,9 @@ class TrajoptMPCReference:
         xs = copy.deepcopy(x[:,0])
 
         # Start the main loops (soft constraint outer loop)
-        soft_constraint_iteration = 0
+        self.soft_constraint_iteration = 0
         while 1:
+            # print("Inside Soft constraints loop")
 
             # Initialize the QP solve
             J = 0
@@ -375,27 +554,47 @@ class TrajoptMPCReference:
             mu = 10
 
             merit = J + mu*c
+           
+
             if options['DEBUG_MODE_SQP_DDP']:
                 print("Initial Cost, Constraint Violation, Merit Function: ", J, c, merit)
-            if options['RETURN_TRACE_SQP']:
-                inner_iters = 0
-                trace = [[J,c,0,inner_iters]]
+            
+            inner_iters = 0
+            self.trace = [{
+                'outer_iteration': self.soft_constraint_iteration,
+                'iteration': 0,
+                'line_search_iteration': 0,
+                'alpha': 1,
+                'rho': rho,
+                'J': J,
+                'c': c,
+                'merit': merit,
+                'D': None,
+                'reduction_ratio': None,
+                'inner_iters': self.n_inner_iter,
+                'singular': False,
+                'succeeded_line_search': False
+            }]
 
             # Start the main loop (SQP main loop)
-            iteration = 0
+            self.iteration = 0
             while 1:
 
                 #
                 # Solve QP to get step direction
                 #
+                # print("Inside SQP loop")
 
+                # print("Defining QP problem : KKT")
+                # print("Solving QP problem")
+                self.n_inner_iter=0
                 if LINEAR_SYSTEM_SOLVER_METHOD == SQPSolverMethods.N: # standard backslash
                     dxul = self.solveKKTSystem(x, u, xs, N, dt, rho, options_linSys)
                 elif LINEAR_SYSTEM_SOLVER_METHOD == SQPSolverMethods.S: # schur complement backslash
                     dxul = self.solveKKTSystem_Schur(x, u, xs, N, dt, rho, False, options_linSys)
                 elif USING_PCG: # PCG
                     dxul = self.solveKKTSystem_Schur(x, u, xs, N, dt, rho, True, options_linSys)
-                # you say invalid, but N is covered above, why? TODO!
+                
                 else:
                     print("Invalid QP Solver options are:\n", \
                           "N      : Standard Backslash\n", \
@@ -404,29 +603,33 @@ class TrajoptMPCReference:
                     print("If calling from SQP the solver must be called QP-X where X is a solver option above.")
                     exit()
 
-                if USING_PCG and options['RETURN_TRACE_linSys']:
-                    inner_trace = dxul[1][1]
-                    dxul = dxul[0]
-                    inner_iters = len(inner_trace)
-                else:
-                    inner_iters = 1
+                self.saved_dxul.append({'value': dxul, 'iteration': self.iteration, 'outer_iteration': self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+
+                
+        
 
                 #
                 # Do line search and accept iterate or regularize the problem
                 #
                 alpha = 1
                 error = False
+                self.line_search_iteration =0
                 while 1:
+
+                    # print("     Start of line seach loop, iteration:", self.iteration )
                     #
                     # Apply the update
                     #
+                    # print("     Update x and u trajectories with the (N size) search direction found in QP solve ")
 
                     x_new = copy.deepcopy(x)
                     u_new = copy.deepcopy(u)
                     for k in range(N):
-                        x_new[:,k] -= alpha*dxul[n*k : n*k+nx, 0]
+                        x_new[:,k] = x_new[:,k]-alpha*dxul[n*k : n*k+nx, 0]
                         if k < N-1:
-                            u_new[:,k] -= alpha*dxul[n*k+nx : n*(k+1), 0]
+                            u_new[:,k] = u_new[:,k]-alpha*dxul[n*k+nx : n*(k+1), 0]
+
+                    # print("     Compute the cost, constraint violation, and directional derivative")
                     
                     #
                     # Compute the cost, constraint violation, and directional derivative
@@ -439,26 +642,25 @@ class TrajoptMPCReference:
                     #
                     D = 0 
                     for k in range(N-1):
-                        D += self.cost.gradient(x_new[:,k], u_new[:,k], k).dot(dxul[n*k : n*(k+1), 0])
+                        D += float(self.cost.gradient(x_new[:,k], u_new[:,k], k,self.iteration, self.soft_constraint_iteration, self.line_search_iteration)@dxul[n*k : n*(k+1), 0])
                         
                         # Add soft constraints if applicable
                         if self.other_constraints.total_soft_constraints(timestep = k) > 0:
-                            D += self.other_constraints.jacobian_soft_constraints(x_new[:,k], u_new[:,k], k)[:,0].dot(dxul[n*k : n*(k+1), 0])
+                            D += float(self.other_constraints.jacobian_soft_constraints(x_new[:,k], u_new[:,k], k)[:,0].dot(dxul[n*k : n*(k+1), 0]))
 
                     # D += np.dot(self.cost.gradient(x_new[:,N-1], timestep = N-1), dxul[n*(N-1) : n*(N-1)+nx, 0])
-                    D += self.cost.gradient(x_new[:,N-1], timestep = N-1).dot(dxul[n*(N-1) : n*(N-1)+nx, 0])
+                    D += float(self.cost.gradient(x_new[:,N-1], timestep = N-1, iter_1= self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)@dxul[n*(N-1) : n*(N-1)+nx, 0])
                     # Add soft constraints if applicable
                     if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
                         #D += np.dot(self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0], dxul[n*(N-1) : n*(N-1)+nx, 0])
-                        D += self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0].dot(dxul[n*(N-1) : n*(N-1)+nx, 0])
+                        D += float(self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0].dot(dxul[n*(N-1) : n*(N-1)+nx, 0]))
 
-                    if(self.plant.rbdReference.overloading):
-                        D=np.float64(D)
-                    
+                   
+                    # print("     Compute new merit function")
                     #
                     # Compute totals for line search test
                     #
-                    merit_new = J_new + mu * c_new
+                    merit_new = J_new+mu*c_new
                     delta_J = J - J_new
                     delta_c = c - c_new
                     delta_merit = merit -  merit_new
@@ -468,18 +670,21 @@ class TrajoptMPCReference:
                     #
                     # If succeeded accept new trajectory according to Nocedal and Wright 18.3
                     #
-                    
-
                     if (delta_merit >= 0 and reduction_ratio >= options['expected_reduction_min_SQP_DDP'] and \
                                              reduction_ratio <= options['expected_reduction_max_SQP_DDP']):
+                        
+                        # print("     Merit function sufficiently reduced")
+                        # print("     Applying updated x trajectory to the actual state + updating actual merit, J and c")
                         x = x_new
                         u = u_new
                         J = J_new
                         c = c_new
+                        self.saved_x.append({'value': x, 'iteration': self.iteration, 'outer_iteration': self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                        self.saved_u.append({'value': u, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
                         merit = merit_new
                         if options['DEBUG_MODE_SQP_DDP']:
-                            print("Iter[", iteration, "] Cost[", J_new, "], Constraint Violation[", c_new, "], mu [", mu, "], Merit Function[", merit_new, "] and Reduction Ratio[", reduction_ratio, "] and rho [", rho, "]")
-
+                            print("Iter[", self.iteration, "] Cost[", J_new, "], Constraint Violation[", c_new, "], mu [", mu, "], Merit Function[", merit_new, "] and Reduction Ratio[", reduction_ratio, "] and rho [", rho, "]")
+                        # print("     Reduce rho")
                         # update regularization
                         rho, drho = self.reduce_regularization(rho, drho, options)
                         # Check feasability gain vs. optimality gain and adjust mu accordingly
@@ -490,8 +695,22 @@ class TrajoptMPCReference:
                         # merit = J + mu * c
                         if options['DEBUG_MODE_SQP_DDP']:
                             print("      updated merit: ", merit, " <<< delta J vs c: ", delta_J, " ", delta_c)
-                        if options['RETURN_TRACE_SQP']:
-                            trace.append([J,c,int(-np.log(alpha)/np.log(2))+1,inner_iters])
+                            
+                        self.trace.append({
+                            'outer_iteration': self.soft_constraint_iteration,
+                            'iteration': self.iteration,
+                            'line_search_iteration': self.line_search_iteration, #int(-np.log(alpha) / np.log(2)) + 1,
+                            'alpha': alpha,
+                            'rho': rho,
+                            'J': J,
+                            'c': c,
+                            'merit': merit,
+                            'D': D,
+                            'reduction_ratio': reduction_ratio,
+                            'inner_iters': self.n_inner_iter, #inner_iters,
+                            'singular': self.singular,
+                            'succeeded_line_search': True
+                        })
                         # end line search
                         break
                     
@@ -499,379 +718,53 @@ class TrajoptMPCReference:
                     # If failed iterate decrease alpha and try line search again
                     #
                     elif alpha > options['alpha_min_SQP_DDP']:
+                        # print("     Failed to reduce Merit function sufficiently, decrease alpha")
+
                         if options['DEBUG_MODE_SQP_DDP']:
                             print("Alpha[", alpha, "] Rejected with Cost[", J_new, "], Constraint Violation[", c_new, "], mu [", mu, "], Merit Function[", merit_new, "] and Reduction Ratio[", reduction_ratio, "]")
                         alpha *= options['alpha_factor_SQP_DDP']
-                    
+                        self.line_search_iteration +=1
                     #
                     # If failed the whole line search report the error
                     #
                     else:
+                        print("Line search failed")
+
                         error = True
                         if options['DEBUG_MODE_SQP_DDP']:
                             print("Line search failed")
-                        if options['RETURN_TRACE_SQP']:
-                            trace.append([J,c,-1,inner_iters])
+
+                        self.trace.append({
+                            'outer_iteration': self.soft_constraint_iteration,
+                            'iteration': self.iteration,
+                            'line_search_iteration': self.line_search_iteration, #int(-np.log(alpha) / np.log(2)) + 1,
+                            'alpha': alpha,
+                            'rho': rho,
+                            'J': J,
+                            'c': c,
+                            'merit': merit,
+                            'D': D,
+                            'reduction_ratio': reduction_ratio,
+                            'inner_iters': self.n_inner_iter,
+                            'singular': self.singular,
+                            'succeeded_line_search': False
+                        })
                         break
                 #
                 # Check for exit (or error) and adjust accordingly
                 #
-                exit_flag, iteration, rho, drho = self.check_for_exit_or_error(error, delta_J, iteration, rho, drho, options)
+                exit_flag, self.iteration, rho, drho = self.check_for_exit_or_error(error, delta_J, self.iteration, rho, drho, options)
                 if exit_flag:
                     break
 
             #
             # Outer loop updates of soft constraint hyperparameters (where appropriate)
             #
-            exit_flag, soft_constraint_iteration = self.check_and_update_soft_constraints(x, u, soft_constraint_iteration, options)
+            exit_flag, self.soft_constraint_iteration = self.check_and_update_soft_constraints(x, u, self.soft_constraint_iteration, options)
             if exit_flag:
                 break
 
-        if options['RETURN_TRACE_SQP']:
-            return x, u, trace    
-        return x, u
 
-    def iLQR(self, x: np.ndarray, u: np.ndarray, N: int, dt: float, options):
-        # print('iLQR')
-        self.set_default_options(options)
+        return x, u, self.exit_sqp, self.exit_soft, self.soft_constraint_iteration, self.iteration
 
-        nq = self.plant.get_num_pos()
-        nv = self.plant.get_num_vel()
-        nu = self.plant.get_num_cntrl()
-        nx = nq + nv
-
-        # Start the main loops (soft constraint outer loop)
-        soft_constraint_iteration = 0
-        while 1:
-
-            #
-            # compute initial cost and gradients and placeholders
-            #
-            rho = options['rho_init_SQP_DDP']
-            drho = 1
-            J = 0
-            iteration = 0
-            du = np.zeros((nu,N-1))
-            K = np.zeros((nu,nq+nv,N-1))
-            H = np.zeros((nq+nv+nu,nq+nv+nu,N))
-            g = np.zeros((nq+nv+nu,N))
-            A = np.zeros((nq+nv,nq+nv,N-1))
-            B = np.zeros((nq+nv,nu,N-1))
-            for k in range(N-1):
-                J += self.cost.value(x[:,k], u[:,k], k)
-                g[:,k] = self.cost.gradient(x[:,k], u[:,k], k)
-                H[:,:,k] = self.cost.hessian(x[:,k], u[:,k], k)
-                A[:,:,k], B[:,:,k] = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True)
-            J += self.cost.value(x[:,N-1], timestep = N-1)
-            g[0:nx,N-1] = self.cost.gradient(x[:,N-1], timestep = N-1)
-            H[0:nx,0:nx,N-1] = self.cost.hessian(x[:,N-1], timestep = N-1)
-
-            #
-            # add soft constraints if applicable
-            #
-            for k in range(N-1):
-                if self.other_constraints.total_soft_constraints(timestep = k) > 0:
-                    J += self.other_constraints.value_soft_constraints(x[:,k], u[:,k], k)
-                    gck = self.other_constraints.jacobian_soft_constraints(x[:,k], u[:,k], k)
-                    g[:,k] += gck[:,0]
-                    H[:,:,k] += np.outer(gck,gck)
-            if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
-                J += self.other_constraints.value_soft_constraints(x[:,N-1], timestep = N-1)
-                gcNm1 = self.other_constraints.jacobian_soft_constraints(x[:,N-1], timestep = N-1)
-                g[0:nx,N-1] += gcNm1[:,0]
-                H[0:nx,0:nx,N-1] += np.outer(gcNm1,gcNm1)
-
-
-            if options['DEBUG_MODE_SQP_DDP']:
-                print("Initial Cost: ", J)
-
-            # start the main loop
-            while 1:
-                #
-                # Do backwards pass to compute du and K and expected cost reduction
-                #
-                error = False
-                delta_J_expected_1 = 0
-                delta_J_expected_2 = 0
-                K_new = np.zeros(K.shape)
-                du_new = np.zeros(du.shape)
-                
-                #
-                # Initialize CTG
-                #
-                P = H[0:nx,0:nx,N-1]
-                p = g[0:nx,N-1]
-                for k in range(N-2,-1,-1):
-                    #
-                    # Backpropogate CTG
-                    #
-                    Hxxk = np.matmul(A[:,:,k].transpose(),np.matmul(P,A[:,:,k])) + H[0:nq+nv,0:nq+nv,k]
-                    Huuk = np.matmul(B[:,:,k].transpose(),np.matmul(P,B[:,:,k])) + H[nq+nv:,nq+nv:,k]
-                    Huxk = np.matmul(B[:,:,k].transpose(),np.matmul(P,A[:,:,k])) + H[nq+nv:,0:nq+nv,k]
-                    gxk = np.matmul(A[:,:,k].transpose(),p) + g[0:nq+nv,k]
-                    guk = np.matmul(B[:,:,k].transpose(),p) + g[nq+nv:,k]
-                    if options['state_regularization_DDP']:
-                        Preg = P + rho*np.eye(nq+nv)
-                        Huuk = np.matmul(B[:,:,k].transpose(),np.matmul(Preg,B[:,:,k])) + H[nq+nv:,nq+nv:,k]
-                        Huxk = np.matmul(B[:,:,k].transpose(),np.matmul(Preg,A[:,:,k])) + H[nq+nv:,0:nq+nv,k]
-                    else:
-                        Huuk_adj = Huuk + rho*np.eye(nu)
-                        Huxk_adj = Huxk
-                    #
-                    # Invert Huu block
-                    #
-                    try:
-                        HuukInv = np.linalg.inv(Huuk)
-                    except np.linalg.LinAlgError:
-                        if options['DEBUG_MODE_SQP_DDP']:
-                            print("Error in backward pass!")
-                        error = True
-                        break
-                    #
-                    # Compute feedback and next CTG as well as expected cost
-                    #
-                    K_new[:,:,k] = -np.matmul(HuukInv,Huxk)
-                    du_new[:,k] = -np.matmul(HuukInv,guk[:])
-                    P = Hxxk + np.matmul(K_new[:,:,k].transpose(),np.matmul(Huuk,K_new[:,:,k])) + np.matmul(K_new[:,:,k].transpose(),Huxk) + np.matmul(Huxk.transpose(),K_new[:,:,k])
-                    p = gxk + np.matmul(K_new[:,:,k].transpose(),np.matmul(Huuk,du_new[:,k])) + np.matmul(K_new[:,:,k].transpose(),guk) + np.matmul(Huxk.transpose(),du_new[:,k])
-                    delta_J_expected_1 += np.matmul(du_new[:,k].transpose(),guk)
-                    delta_J_expected_2 +=  np.matmul(du_new[:,k].transpose(),np.matmul(Huuk,du_new[:,k]))
-
-                if not error:
-                    du = du_new
-                    K = K_new
-                
-                #
-                # Do forwards pass to compute new x, u, J (with line search)
-                #
-                if not error:
-                    alpha = 1
-                    while 1:
-                        #
-                        # Simulate forward
-                        #
-                        x_new = copy.deepcopy(x)
-                        u_new = copy.deepcopy(u)
-                        J_new = 0
-                        for k in range(N-1):
-                            u_new_k = u[:,k] + alpha*du[:,k] + np.matmul(K[:,:,k],(x_new[:,k] - x[:,k]))
-                            u_new[:,k:k+1] = np.reshape(u_new_k, (u_new_k.shape[0],1))
-                            
-                            x_new_k = self.plant.integrator(x_new[:,k], u_new[:,k], dt)
-                            x_new[:,k+1:k+2] = np.reshape(x_new_k, (x_new_k.shape[0],1))
-                            
-                            J_new += self.cost.value(x_new[:,k], u_new[:,k], k)
-                        J_new += self.cost.value(x_new[:,N-1], timestep = N-1)
-                        #
-                        # Add soft constraints if applicable
-                        #
-                        if self.other_constraints.total_soft_constraints() > 0:
-                            for k in range(N-1):
-                                J_new += self.other_constraints.value_soft_constraints(x_new[:,k], u_new[:,k], k)
-                            J_new += self.other_constraints.value_soft_constraints(x_new[:,N-1], timestep = N-1)
-                        #
-                        # Compute change in cost
-                        #
-                        delta_J = J - J_new
-                        delta_J_expected = -alpha*delta_J_expected_1 + 0.5*alpha*alpha*delta_J_expected_2
-                        if not delta_J_expected == 0:
-                            delta_J_ratio = delta_J / delta_J_expected
-                        else:
-                            delta_J_ratio = options["expected_reduction_min_SQP_DDP"]
-                        #
-                        # If succeeded accept new trajectory
-                        #
-                        if delta_J >= 0 and delta_J_ratio >= options['expected_reduction_min_SQP_DDP'] \
-                                        and delta_J_ratio <= options['expected_reduction_max_SQP_DDP']:
-                            x = x_new
-                            u = u_new
-                            J = J_new
-                            rho, drho = self.reduce_regularization(rho, drho, options)
-                            if options['DEBUG_MODE_SQP_DDP']:
-                                print("Iteration[", iteration, "] with cost[", J, "] and delta_J_ratio[", delta_J_ratio, "]")
-                                print("x final:")
-                                print(x[:,N-1])
-                            break
-                        #
-                        # If failed decrease alpha and try line search again
-                        #
-                        elif alpha > options['alpha_min_SQP_DDP']:
-                            alpha *= options['alpha_factor_SQP_DDP']
-                            if options['DEBUG_MODE_SQP_DDP']:
-                                print("Rejected with delta_J[", delta_J, "] and delta_J_ratio[", delta_J_ratio, "]")
-                        #
-                        # If failed the whole line search report the error
-                        #
-                        else:
-                            error = True
-                            if options['DEBUG_MODE_SQP_DDP']:
-                                print("Line search failed")
-                            break
-                #
-                # Check for exit (or error) and adjust accordingly
-                #
-                exit_flag, iteration, rho, drho = self.check_for_exit_or_error(error, delta_J, iteration, rho, drho, options)
-                if exit_flag:
-                    break
-                #
-                # If doing new loop compute new gradients
-                #
-                for k in range(N-1):
-                    A[:,:,k], B[:,:,k] = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True)
-                    H[:,:,k] = self.cost.hessian(x[:,k], u[:,k], k)
-                    g[:,k] = self.cost.gradient(x[:,k], u[:,k], k)
-                H[0:nx,0:nx,N-1] = self.cost.hessian(x[:,N-1], timestep = N-1)
-                g[0:nx,N-1] = self.cost.gradient(x[:,N-1], timestep = N-1)
-                #
-                # add soft constraints if applicable
-                #
-                for k in range(N-1):
-                    if self.other_constraints.total_soft_constraints(timestep = k) > 0:
-                        J += self.other_constraints.value_soft_constraints(x[:,k], u[:,k], k)
-                        gck = self.other_constraints.jacobian_soft_constraints(x[:,k], u[:,k], k)
-                        g[:,k] += gck[:,0]
-                        H[:,:,k] += np.outer(gck,gck)
-                if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
-                    J += self.other_constraints.value_soft_constraints(x[:,N-1], timestep = N-1)
-                    gcNm1 = self.other_constraints.jacobian_soft_constraints(x[:,N-1], timestep = N-1)
-                    g[0:nx,N-1] += gcNm1[:,0]
-                    H[0:nx,0:nx,N-1] += np.outer(gcNm1,gcNm1)
-            
-            #
-            # Outer loop updates of soft constraint hyperparameters (where appropriate)
-            #
-            exit_flag, soft_constraint_iteration = self.check_and_update_soft_constraints(x, u, soft_constraint_iteration, options)
-            if exit_flag:
-                break
-
-        if options['DEBUG_MODE_SQP_DDP']:
-            print("Final Trajectory")
-            print(x)
-            print(u)
-        return x, u, K
-
-    def LQR_tracking(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float):
-        # print('LQR_tracking')
-        nq = self.plant.get_num_pos()
-        nv = self.plant.get_num_vel()
-        nu = self.plant.get_num_cntrl()
-        nx = nq + nv
-        n = nx + nu
-        K = np.zeros((nu,nx,N-1))
-
-        P = self.cost.hessian(x[:,N-1], timestep = N-1)
-        for k in range(N-2,-1,-1):
-            H = self.cost.hessian(x[:,k], u[:,k], k)
-            Q = H[0:nx, 0:nx]
-            R = H[nx:n, nx:n]
-            A, B = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True)
-            
-            PA = np.matmul(P,A)
-            PB = np.matmul(P,B)
-            ATPA = np.matmul(A.transpose(),PA)
-            ATPB = np.matmul(A.transpose(),PB)
-            BTPB = np.matmul(B.transpose(),PB)  
-            BTPA = np.matmul(B.transpose(),PA)
-            invTerm = np.linalg.inv(R + BTPB)
-            
-            Kterm = np.matmul(invTerm,BTPA)
-            K[:,:,k] = -Kterm
-
-            P = Q + ATPA - np.matmul(ATPB,Kterm)
-
-        return K
-
-
-    def integrate_and_shift_trajectory(self, x: np.ndarray, u: np.ndarray, K: int, xs: np.ndarray, dt: float, options = {}):
-        # print('integrate_and_shift_trajectory')
-        self.set_default_options(options)
-        # compute new start state
-        xs_new = copy.deepcopy(xs)
-        adj = 0
-        for k in range(options['num_timesteps_per_solve_mpc']):
-            for i in range(options['simulator_steps_mpc']):
-                if not isinstance(K, type(None)):
-                    x_err = xs_new - x[:,k]
-                    adj = np.matmul(K[:,:,k],x_err)
-                u_new = u[:,k] + adj
-                xs_new = self.plant.integrator(xs_new, u_new, dt/options['simulator_steps_mpc'], 0)
-        xs = copy.deepcopy(xs_new)
-
-        # shift trajectory
-        x[:,:-options['num_timesteps_per_solve_mpc']] = x[:,options['num_timesteps_per_solve_mpc']:]
-        u[:,:-options['num_timesteps_per_solve_mpc']] = u[:,options['num_timesteps_per_solve_mpc']:]
-
-        # Copy in new start state
-        x[:,0] = copy.deepcopy(xs)
-
-        # Fill end
-        copy_step = -options['num_timesteps_per_solve_mpc'] - 1
-        for step in range(options['num_timesteps_per_solve_mpc']):
-            load_step = -step - 1 # starts at 0 but we need to start at -1
-            integrate_from_step = load_step - 1
-            u[:,load_step] = u[:,copy_step]
-            x[:,load_step] = self.plant.integrator(x[:,integrate_from_step], u[:,load_step], dt, 0)
-
-        # Finally shift soft constraint constants if applicable and fill end with zeros
-        self.other_constraints.shift_soft_constraint_constants(options['num_timesteps_per_solve_mpc'])
-
-        return x, u, xs
-
-
-    def MPC(self, x: np.ndarray, u: np.ndarray, N: int, dt: float, SOLVER_METHOD = MPCSolverMethods.QP_N, options = {}):
-        # print('MPC')
-        self.set_default_options(options)
-
-        last_err = float('inf')
-        xs = copy.deepcopy(x[:,0])
-        x_trace = np.reshape(xs,(xs.shape[0],1))
-        u_trace = None
-        if options['DEBUG_MODE_SQP_DDP']:
-            print(xs)
-
-        while True:
-
-            if SOLVER_METHOD in [MPCSolverMethods.QP_N, MPCSolverMethods.QP_S, MPCSolverMethods.QP_PCG_J, MPCSolverMethods.QP_PCG_BJ, MPCSolverMethods.QP_PCG_SS]:
-                options['max_iter_SQP_DDP'] = 5
-                sqp_solver = SQPSolverMethods(SOLVER_METHOD.value[3:])
-                x, u = self.SQP(x, u, N, dt, sqp_solver, options)
-                K = self.LQR_tracking(x, u, xs, N, dt)
-            elif SOLVER_METHOD == "iLQR":
-                x, u, K = self.iLQR(x, u, N, dt, options)
-            else:
-                print("Invalid solver options are:\n", \
-                          "iLQR      : Standard Iterated Quadratic Regulator\n", \
-                          "QP-N      : SQP with Standard Backslash\n", \
-                          "QP-S      : SQP with Schur Complement Backslash\n", \
-                          "QP-PCG-0  : SQP with PCG with no preconditioner\n", \
-                          "QP-PCG-J  : SQP with PCG with Jacobi preconditioner\n", \
-                          "QP-PCG-BJ : SQP with PCG with Block-Jacobi preconditioner\n", \
-                          "QP-PCG-SS : SQP with PCG with Stair preconditioner\n")
-                exit()
-
-            if isinstance(u_trace, type(None)):
-                u_trace = np.reshape(u[:,0],(u.shape[0],1))
-            else:
-                u_trace = np.append(u_trace,np.reshape(u[:,0],(u.shape[0],1)),1)
-
-            x, u, xs = self.integrate_and_shift_trajectory(x, u, K, xs, dt, options)
-
-            x_trace = np.append(x_trace,np.reshape(xs,(xs.shape[0],1)),1)
-            if options['DEBUG_MODE_SQP_DDP'] or 1:
-                print(xs)
-
-            err = xs - self.cost.xg
-            # err = np.dot(err,err)
-            err = err.dot(err)
-            delta_err = abs(last_err - err)
-            
-            if delta_err < 1e-4:
-                break
-        
-            last_err = err
-
-        if options['print_full_trajectory_DDP']:
-            print(x_trace)
-            print(u_trace)
-
-        return x_trace, u_trace
+   

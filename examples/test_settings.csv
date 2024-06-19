@@ -1,0 +1,13 @@
+Test number,number of links,xg,type of Cost,N,SQP Solver Method,Set Hard constraints,torque limits hard,Soft constraints,torque limits soft,Hessian,Integrator type,Lin Sys method,Use PCG,Minv,exit_tolerance,max_iter,alpha_factor,alpha_min,rho_factor,rho_min,rho_max,expect reduc min,expect reduc max,exit soft constraints,state regularization,max iter soft,exit_tolerance_softConstraints,merit factor SQP,Q,U
+1,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+2,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+3,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+4,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+5,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+6,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+7,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+8,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+9,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+10,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+11,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,
+12,2,Constant,URDF,10,PCG_SS,None,,None,,approximate,Euler,schur complement backslash,TRUE,Upper triangular,,,,,,,,,,,,,,,,

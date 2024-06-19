@@ -1,10 +1,11 @@
 import numpy as np
 import inspect
-
+# from exampleHelpers import *
+from TrajoptMPCReference import iteration,soft_constraint_iteration
 
 class matrix_(np.ndarray):
     operation_history = []
-    horizon=4
+    
 
     def __new__(cls, w):
 
@@ -16,14 +17,7 @@ class matrix_(np.ndarray):
         #self.info = getattr(obj, 'info', None)
  
     def __mul__(self, o):
-        current_frame = inspect.currentframe()
-        matrix_.operation_history.append(("mul", self, o, 
-                                  *[frame.filename.split('/')[-1] for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-                                #   [frame.filename for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-                                          
-                                  *[frame.function for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-                                  *[frame.lineno for frame in inspect.getouterframes(current_frame, 2)[1:4]]))
-        
+        self.save_op_history('mul',o)
         if(isinstance(o,matrix_)):
             return matrix_(np.matmul(self.view(np.ndarray),o.view(np.ndarray)))
         if(isinstance(o,np.ndarray)):
@@ -34,13 +28,8 @@ class matrix_(np.ndarray):
             raise TypeError("Not Implement")
     
     def __sub__(self,o):
-        current_frame = inspect.currentframe()
-        matrix_.operation_history.append(("sub", self, o, 
-                                  *[frame.filename.split('/')[-1] for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-                                #   [frame.filename for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-
-                                  *[frame.function for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-                                  *[frame.lineno for frame in inspect.getouterframes(current_frame, 2)[1:4]]))
+        self.save_op_history('sub',o)
+        
     
         if(isinstance(o,matrix_)):
             return matrix_(self.view(np.ndarray)-o.view(np.ndarray))
@@ -52,30 +41,14 @@ class matrix_(np.ndarray):
             raise TypeError("Not Implement")
     
     def __add__(self, o):
-        current_frame = inspect.currentframe()
-        # frame_info=[(frame.filename, frame.function, frame.lineno) for frame in inspect.getouterframes(current_frame, 2)[1:4]]
-        # matrix_.operation_history.append(("add", self,o, frame_info ))
-        frames=inspect.getouterframes(current_frame, 2)[1:self.horizon]
-        filenames=[frame.filename.split('/')[-1] for frame in frames]
-        functions=[frame.function for frame in frames]
-        lines=[frame.lineno for frame in frames]
-        matrix_.operation_history.append(("add", self, o, *filenames, *functions, *lines))
-
-        # matrix_.operation_history.append(("add", self, o, 
-        #                           [frame.filename.split('/')[-1] for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-        #                           [frame.function for frame in inspect.getouterframes(current_frame, 2)[1:4]],
-        #                           [frame.lineno for frame in inspect.getouterframes(current_frame, 2)[1:4]]))
-
-        # matrix_.operation_history.append(("add", self,o ))
-        # for frame in inspect.getouterframes(current_frame, 2)[1:4]:
-        #     matrix_.operation_history.append((frame.filename, frame.function, frame.lineno))
+        self.save_op_history('add',o)
+    
         if(isinstance(o,matrix_)):
             return matrix_(self.view(np.ndarray)+o.view(np.ndarray))
         if(isinstance(o,np.ndarray)):
             return matrix_(self.view(np.ndarray)+o)
         if(isinstance(o,int) | isinstance(o,float)):
             return matrix_(self.view(np.ndarray)+o)
-        
         else:
             raise TypeError("Not Implement")
         
@@ -106,11 +79,12 @@ class matrix_(np.ndarray):
                 return self*o
             
     def transpose(self):
-        n=self.shape       
-        if(len(n)==1):
-            n=n+(1,)
-        return self.reshape(n[::-1])
-        # print("transpose\n",self.reshape(n[::-1]).shape)
+        self.save_op_history('transpose',None)
+        if(isinstance(self,matrix_)):
+            return matrix_(np.transpose(self))
+        else:
+            return np.transpose(self)
+            
     
     def __rmatmul__(self, o, out=None):
         return matrix_(o)*self
@@ -118,5 +92,68 @@ class matrix_(np.ndarray):
     def __matmul__(self,o,out=None):
         return self*matrix_(o)
     
+    def linalg_solve(self,A,b):
+        singular=False
+        try:
+            result = matrix_(np.linalg.solve(A, b))
+            matrix_.save_op_history(A,'linalg_solve',b)
+            return result
 
 
+        except:
+            singular=True #Warning singular system -- solving with least squares.")
+            result, _, _, _ = matrix_(np.linalg.lstsq(A, b, rcond=None))
+            matrix_.save_op_history(A,'linalg_solve_lstsq',b)
+
+            return result, singular
+
+    def invert_matrix(self):
+        try:
+            result=matrix_(np.linalg.inv(self))
+            matrix_.save_op_history(self,'invert_matrix',None)
+        except:
+            print("Warning singular matrix -- using Psuedo Inverse.")
+            result= matrix_(np.linalg.pinv(self))
+            matrix_.save_op_history(self,'pseudo_invert_matrix',None)
+        return result
+    
+    def diag(self):
+        matrix_.save_op_history(self,'diag',None)
+        return matrix_(np.diag(self))
+
+    def vstack(A,B):
+        matrix_.save_op_history(A,'vstack',B)
+        return matrix_(np.vstack((A,B)))
+    
+    def hstack(A,B,C=None):
+        if C is not None:
+            matrix_.save_op_history(A,'hstack',[B,C])
+            return matrix_(np.hstack((A,B,C)))
+        else:
+            matrix_.save_op_history(A,'hstack',B)
+            return matrix_(np.hstack((A,B)))
+    
+    def reshape(self,shape):
+        matrix_.save_op_history(self,'reshape',shape)
+        if(isinstance(self,matrix_)):
+            return matrix_(np.reshape(self,shape))
+        else:
+            return np.reshape(self,shape)
+        
+    def save_op_history(self,type,o):
+        
+        current_frame = inspect.currentframe()
+        outerframes=inspect.getouterframes(current_frame, 2)
+        if(outerframes[2].filename.split('/')[-1]=='overloading.py'): # if matmul, or rsub or rmul or radd, don't want to record this function call
+            frames=outerframes[3:-3] #-3 because first calls are not interesting (twolinks, SQPexamples, runSQPexamples)
+        else:
+            frames=outerframes[2:-3] # by default start at 2 (0: save_op_history, 1: operation function)
+        if(len(frames)>10):
+            raise ValueError("Horizon higher than 10, is: ", len(frames))
+        
+        padding=[np.nan] * (10 - len(frames))# Fill up to 10 so everyline has same number of columns => checked before if 10 columns if enough for every operation
+        filenames=[frame.filename.split('/')[-1] for frame in frames]
+        functions=[frame.function for frame in frames]
+
+        lines=[frame.lineno for frame in frames]
+        matrix_.operation_history.append((type, self, o, *filenames,*padding, *functions, *padding,*lines,*padding, iteration, soft_constraint_iteration))

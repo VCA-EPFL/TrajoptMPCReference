@@ -243,7 +243,7 @@ class URDFParser:
             # remove all fixed joints, renumber links and joints, and build parent and subtree lists
             self.renumber_linksJoints(alpha_tie_breaker)
             # report joint ordering to user
-            self.print_joint_order()
+           # self.print_joint_order()
             # return the robot object
             return copy.deepcopy(self.robot)
         except Exception as e:
@@ -269,7 +269,7 @@ class URDFParser:
             # parse origin
             raw_origin = raw_link.find("origin")
             if raw_origin is None:
-                print("Link [" + name + "] does not have an origin. Assuming this is the fixed world base frame. Else there is an error with your URDF file.")
+                #print("Link [" + name + "] does not have an origin. Assuming this is the fixed world base frame. Else there is an error with your URDF file.")
                 curr_link.set_origin_xyz([0, 0, 0])
                 curr_link.set_origin_rpy([0, 0, 0])
             else:
@@ -279,7 +279,7 @@ class URDFParser:
             # parse inertial properties
             raw_inertial = raw_link.find("inertial")
             if raw_inertial is None:
-                print("Link [" + name + "] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.")
+                #print("Link [" + name + "] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.")
                 curr_link.set_inertia(0, 0, 0, 0, 0, 0, 0)
             else:
                 

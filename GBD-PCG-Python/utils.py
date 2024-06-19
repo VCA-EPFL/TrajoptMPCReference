@@ -1,6 +1,7 @@
 import numpy as np
 
 def check_positive_semidefinite(A):
+	print("check_positive_semidefinite")
 	eigenvalues = np.linalg.eigvals(A)
 
 	# Check if all eigenvalues are non-negative
@@ -12,7 +13,7 @@ def check_positive_semidefinite(A):
 		return False
 
 def generate_A(nx, n_blocks):
-	
+	print("generate_A")
 	# Define the size of the overall matrix
 	n = nx * n_blocks
 
@@ -49,7 +50,7 @@ def generate_A(nx, n_blocks):
 	return A
 
 def blockdiagonal(nx, n_blocks):
-	
+	print("blockdiagonal")
 	# Define the size of the overall matrix
 	n = nx * n_blocks
 
@@ -73,5 +74,6 @@ def blockdiagonal(nx, n_blocks):
 
 
 def psd_block_diagonal(nx, n_blocks):
+	print("psd_block_diagonal")
 	A = blockdiagonal(nx, n_blocks)
 	return np.dot(A, A.T)
