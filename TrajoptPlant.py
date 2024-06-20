@@ -138,30 +138,30 @@ class TrajoptPlant:
 					return AB[:,0:nq+nv], AB[:,nq+nv:]
 		
 		elif self.integrator_type == 2: # midpoint
-			xdot1 = self.qdd_to_xdot(xk, self.forward_dynamics(xk,uk, iter1, iter2, iter3))
+			xdot1 = self.qdd_to_xdot(xk, self.forward_dynamics(xk,uk, iter_1, iter_2, iter_3))
 			midpoint = xk+0.5*dt*xdot1
-			xdot2 = self.qdd_to_xdot(xk, self.forward_dynamics(midpoint,uk, iter1, iter2, iter3))
+			xdot2 = self.qdd_to_xdot(xk, self.forward_dynamics(midpoint,uk, iter_1, iter_2, iter_3))
 			xkp1 = xk+dt*xdot2
 			if not return_gradient:
 				return xkp1
 			else:
 				if(self.options['overloading']):
-					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter1, iter2, iter3))
+					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter_1, iter_2, iter_3))
 					A1 = matrix_(np.eye(n))+0.5*dt*dxdot1[:,0:n]
 					B1 = 0.5*dt*dxdot1[:,n:]
 					
-					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(midpoint,uk, iter1, iter2, iter3))
+					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(midpoint,uk, iter_1, iter_2, iter_3))
 					A2 = matrix_(np.eye(n))+0.5*dt*dxdot2[:,0:n]
 					B2 = 0.5*dt*dxdot2[:,n:]
 
 					A = A2@A1
 					B = A2@B1+B2
 				else:
-					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter1, iter2, iter3))
+					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter_1, iter_2, iter_3))
 					A1 = np.eye(n) + 0.5*dt*dxdot1[:,0:n]
 					B1 = 0.5*dt*dxdot1[:,n:]
 					
-					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(midpoint,uk, iter1, iter2, iter3))
+					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(midpoint,uk, iter_1, iter_2, iter_3))
 					A2 = np.eye(n) + 0.5*dt*dxdot2[:,0:n]
 					B2 = 0.5*dt*dxdot2[:,n:]
 
@@ -170,25 +170,25 @@ class TrajoptPlant:
 				return A, B
 
 		elif self.integrator_type == 3: # rk3
-			xdot1 = self.qdd_to_xdot(xk, self.forward_dynamics(xk,uk, iter1, iter2, iter3))
+			xdot1 = self.qdd_to_xdot(xk, self.forward_dynamics(xk,uk, iter_1, iter_2, iter_3))
 			point1 = xk+0.5*dt*xdot1
-			xdot2 = self.qdd_to_xdot(xk, self.forward_dynamics(point1,uk, iter1, iter2, iter3))
+			xdot2 = self.qdd_to_xdot(xk, self.forward_dynamics(point1,uk, iter_1, iter_2, iter_3))
 			point2 = xk+0.75*dt*xdot2
-			xdot3 = self.qdd_to_xdot(xk, self.forward_dynamics(point2,uk, iter1, iter2, iter3))
+			xdot3 = self.qdd_to_xdot(xk, self.forward_dynamics(point2,uk, iter_1, iter_2, iter_3))
 			xkp1 = xk+(dt/9)*(2*xdot1+3*xdot2+4*xdot3)
 			if not return_gradient:
 				return xkp1
 			else:
 				if(self.options['overloading']):
-					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter1, iter2, iter3))
+					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter_1, iter_2, iter_3))
 					A1 = matrix_(np.eye(n))+2/9*dt*dxdot1[:,0:n]
 					B1 = 2/9*dt*dxdot1[:,n:]
 
-					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, iter1, iter2, iter3))
+					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, iter_1, iter_2, iter_3))
 					A2 = matrix_(np.eye(n))+1/3*dt*dxdot2[:,0:n]
 					B2 = 1/3*dt*dxdot1[:,n:]                
 					
-					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk, iter1, iter2, iter3))
+					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk, iter_1, iter_2, iter_3))
 					A3 = matrix_(np.eye(n))+4/9*dt*dxdot3[:,0:n]
 					B3 = 4/9*dt*dxdot1[:,n:]                
 					
@@ -196,15 +196,15 @@ class TrajoptPlant:
 					B = A3@(A2@B1)+A3@B2+B3
 					return A,B
 				else:
-					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter1, iter2, iter3))
+					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter_1, iter_2, iter_3))
 					A1 = np.eye(n) + 2/9*dt*dxdot1[:,0:n]
 					B1 = 2/9*dt*dxdot1[:,n:]
 
-					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, iter1, iter2, iter3))
+					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, iter_1, iter_2, iter_3))
 					A2 = np.eye(n) + 1/3*dt*dxdot2[:,0:n]
 					B2 = 1/3*dt*dxdot1[:,n:]                
 					
-					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk,  iter1, iter2, iter3))
+					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk,  iter_1, iter_2, iter_3))
 					A3 = np.eye(n) + 4/9*dt*dxdot3[:,0:n]
 					B3 = 4/9*dt*dxdot1[:,n:]                
 					
@@ -213,32 +213,32 @@ class TrajoptPlant:
 					return A,B
 		
 		elif self.integrator_type == 4: # rk4
-			xdot1 = self.qdd_to_xdot(xk, self.forward_dynamics(xk,uk,iter1, iter2, iter3))
+			xdot1 = self.qdd_to_xdot(xk, self.forward_dynamics(xk,uk,iter_1, iter_2, iter_3))
 			point1 = xk+0.5*dt*xdot1
-			xdot2 = self.qdd_to_xdot(xk, self.forward_dynamics(point1,uk, iter1, iter2, iter3))
+			xdot2 = self.qdd_to_xdot(xk, self.forward_dynamics(point1,uk, iter_1, iter_2, iter_3))
 			point2 = xk+0.5*dt*xdot2
-			xdot3 = self.qdd_to_xdot(xk, self.forward_dynamics(point2,uk,iter1, iter2, iter3))
+			xdot3 = self.qdd_to_xdot(xk, self.forward_dynamics(point2,uk,iter_1, iter_2, iter_3))
 			point3 = xk+dt*xdot3
-			xdot4 = self.qdd_to_xdot(xk, self.forward_dynamics(point3,uk, iter1, iter2, iter3))
+			xdot4 = self.qdd_to_xdot(xk, self.forward_dynamics(point3,uk, iter_1, iter_2, iter_3))
 			xkp1 = xk+(dt/6)*(xdot1+2*xdot2+2*xdot3+xdot4)
 			if not return_gradient:
 				return xkp1
 			else:
 				if(self.options['overloading']):
 				
-					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk,iter1, iter2, iter3))
+					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk,iter_1, iter_2, iter_3))
 					A1 = matrix_(np.eye(n))+1/6*dt*dxdot1[:,0:n]
 					B1 = 1/6*dt*dxdot1[:,n:]
 
-					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, iter1, iter2, iter3))
+					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, iter_1, iter_2, iter_3))
 					A2 = matrix_(np.eye(n))+1/3*dt*dxdot2[:,0:n]
 					B2 = 1/3*dt*dxdot1[:,n:]                
 					
-					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk,iter1, iter2, iter3))
+					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk,iter_1, iter_2, iter_3))
 					A3 = matrix_(np.eye(n))+1/3*dt*dxdot3[:,0:n]
 					B3 = 1/3*dt*dxdot1[:,n:]
 
-					dxdot4 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point3,uk,iter1, iter2, iter3))
+					dxdot4 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point3,uk,iter_1, iter_2, iter_3))
 					A4 = matrix_(np.eye(n))+1/6*dt*dxdot4[:,0:n]
 					B4 = 1/6*dt*dxdot1[:,n:]
 					
@@ -248,19 +248,19 @@ class TrajoptPlant:
 					return A,B
 				
 				else:
-					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter1, iter2, iter3))
+					dxdot1 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(xk,uk, iter_1, iter_2, iter_3))
 					A1 = np.eye(n) + 1/6*dt*dxdot1[:,0:n]
 					B1 = 1/6*dt*dxdot1[:,n:]
 
-					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, xk, iter1, iter2, iter3))
+					dxdot2 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point1,uk, xk, iter_1, iter_2, iter_3))
 					A2 = np.eye(n) + 1/3*dt*dxdot2[:,0:n]
 					B2 = 1/3*dt*dxdot1[:,n:]                
 					
-					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk, xk,iter1, iter2, iter3))
+					dxdot3 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point2,uk, xk,iter_1, iter_2, iter_3))
 					A3 = np.eye(n) + 1/3*dt*dxdot3[:,0:n]
 					B3 = 1/3*dt*dxdot1[:,n:]
 
-					dxdot4 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point3,uk, xk,iter1, iter2, iter3))
+					dxdot4 = self.dqdd_to_dxdot(self.forward_dynamics_gradient(point3,uk, xk,iter_1, iter_2, iter_3))
 					A4 = np.eye(n) + 1/6*dt*dxdot4[:,0:n]
 					B4 = 1/6*dt*dxdot1[:,n:]
 					

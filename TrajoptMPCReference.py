@@ -41,9 +41,6 @@ class TrajoptMPCReference:
         self.cost = costObj
         self.other_constraints = constraintObj
 
-        self.soft_constraint_iteration=0
-        self.line_search_iteration =0
-        self.iteration=0
         self.n_inner_iter=0
 
         self.saved_Pinv=[]
@@ -112,17 +109,11 @@ class TrajoptMPCReference:
         options.setdefault('expected_reduction_max_SQP_DDP', 3)
         # SQP only options
         options.setdefault('merit_factor_SQP', 1.5)
-        options.setdefault('RETURN_TRACE_SQP', False)
-        # DDP only options
-        options.setdefault('state_regularization_DDP', True)
-        options.setdefault('print_full_trajectory_DDP', True)
         # AL and ADMM options
         options.setdefault('exit_tolerance_softConstraints', 1e-6)
         options.setdefault('max_iter_softConstraints', 10)
         options.setdefault('DEBUG_MODE_Soft_Constraints', False)
-        # MPC options
-        options.setdefault('num_timesteps_per_solve_mpc',  1)
-        options.setdefault('simulator_steps_mpc', 1)
+
 
     def formKKTSystemBlocks(self, x: np.ndarray, u: np.ndarray, xs: np.ndarray, N: int, dt: float):
         nq = self.plant.get_num_pos()
@@ -147,8 +138,8 @@ class TrajoptMPCReference:
             c[constraint_index:constraint_index + nx, 0] = x[:,0]-xs
             constraint_index += nx
             for k in range(N-1):
-                hess=self.cost.hessian(x[:,k], u[:,k], k,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
-                grad=self.cost.gradient(x[:,k], u[:,k], k, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                hess=self.cost.hessian(x[:,k], u[:,k], k,iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
+                grad=self.cost.gradient(x[:,k], u[:,k], k, iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
                 G[state_control_index:state_control_index + n, \
                 state_control_index:state_control_index + n] = hess
                 g[state_control_index:state_control_index + n, 0] = grad
@@ -157,23 +148,23 @@ class TrajoptMPCReference:
                     g[state_control_index:state_control_index + n, :] = g[state_control_index:state_control_index + n, :]+gck
                     G[state_control_index:state_control_index + n, \
                     state_control_index:state_control_index + n] = G[state_control_index:state_control_index + n, state_control_index:state_control_index + n]+matrix_(np.outer(gck,gck))
-                    self.saved_J_tot_constraints.append({'value': gck, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                    self.saved_J_tot_constraints.append({'value': gck, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
-                Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True,iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
                 C[constraint_index:constraint_index + nx, \
                 state_control_index:state_control_index + n + nx] = matrix_.hstack(-Ak, -Bk, matrix_(np.eye(nx)))
-                xkp1 = self.plant.integrator(x[:,k], u[:,k], dt, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                xkp1 = self.plant.integrator(x[:,k], u[:,k], dt, iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
                 c[constraint_index:constraint_index + nx, 0] = x[:,k+1]-xkp1
                 constraint_index += nx
 
-                self.saved_Ak.append({'value': Ak,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-                self.saved_Bk.append({'value': Bk,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-                self.saved_xkp1.append({'value': xkp1, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_Ak.append({'value': Ak,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+                self.saved_Bk.append({'value': Bk,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+                self.saved_xkp1.append({'value': xkp1, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
                 
                 if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, k):
                     jac = self.other_constraints.jacobian_hard_constraints(x[:,k], u[:,k], k)
                     val = self.other_constraints.value_hard_constraints(x[:,k], u[:,k], k)
-                    self.saved_jacobian_hard_constraints.append({'value': jac, 'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                    self.saved_jacobian_hard_constraints.append({'value': jac, 'iteration': matrix_.iteration,'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
                     if val is not None and len(val):
                         num_active_const_k = len(val)
                         C[constraint_index:constraint_index + num_active_const_k, \
@@ -182,8 +173,8 @@ class TrajoptMPCReference:
                         constraint_index += num_active_const_k
                 
                 state_control_index += n
-            hess= self.cost.hessian(x[:,N-1], timestep = N-1, iter_1= self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
-            grad= self.cost.gradient(x[:,N-1], timestep = N-1,iter_1= self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            hess= self.cost.hessian(x[:,N-1], timestep = N-1, iter_1= matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
+            grad= self.cost.gradient(x[:,N-1], timestep = N-1,iter_1= matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
             G[state_control_index:state_control_index + nx, \
             state_control_index:state_control_index + nx] =hess
             g[state_control_index:state_control_index + nx, 0] = grad
@@ -193,12 +184,12 @@ class TrajoptMPCReference:
                 g[state_control_index:state_control_index + nx, :] = g[state_control_index:state_control_index + nx, :]+gcNm1
                 G[state_control_index:state_control_index + nx, \
                 state_control_index:state_control_index + nx] = G[state_control_index:state_control_index + nx, state_control_index:state_control_index + nx]+matrix_(np.outer(gcNm1,gcNm1))
-                self.saved_jacobian_soft_constraints.append({'value': gcNm1, 'iteration':self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_jacobian_soft_constraints.append({'value': gcNm1, 'iteration':matrix_.iteration,'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
             if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, N-1):
                 jac = self.other_constraints.jacobian_hard_constraints(x[:,N-1], timestep = N-1)
                 val = self.other_constraints.value_hard_constraints(x[:,N-1], timestep = N-1)
-                self.saved_jacobian_hard_constraints.append({'value': jac,'iteration': self.iteration,'outer_iteration':self.jacobian_hard_constraints, 'line_search_iteration': self.line_search_iteration})
+                self.saved_jacobian_hard_constraints.append({'value': jac,'iteration': matrix_.iteration,'outer_iteration':self.jacobian_hard_constraints, 'line_search_iteration': matrix_.line_search_iteration})
 
                 if val is not None and len(val):
                     num_active_const_k = len(val)
@@ -224,30 +215,30 @@ class TrajoptMPCReference:
             constraint_index += nx
             for k in range(N-1):
                 G[state_control_index:state_control_index + n, \
-                state_control_index:state_control_index + n] = self.cost.hessian(x[:,k], u[:,k], k,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
-                g[state_control_index:state_control_index + n, 0] = self.cost.gradient(x[:,k], u[:,k], k,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+                state_control_index:state_control_index + n] = self.cost.hessian(x[:,k], u[:,k], k,iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
+                g[state_control_index:state_control_index + n, 0] = self.cost.gradient(x[:,k], u[:,k], k,iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
                 if self.other_constraints.total_soft_constraints(timestep = k) > 0:
                     gck = self.other_constraints.jacobian_soft_constraints(x[:,k], u[:,k], k)
                     g[state_control_index:state_control_index + n, :] = g[state_control_index:state_control_index + n, :]+gck
                     G[state_control_index:state_control_index + n, \
                     state_control_index:state_control_index + n] += np.outer(gck,gck)
-                    self.saved_J_tot_constraints.append({'value': gck, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration,'line_search_iteration':  self.line_search_iteration})
+                    self.saved_J_tot_constraints.append({'value': gck, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration,'line_search_iteration':  matrix_.line_search_iteration})
                 
-                Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True, iter_1= self.iteration, iter_2=self.soft_constraint_iteration)
+                Ak, Bk = self.plant.integrator(x[:,k], u[:,k], dt, return_gradient = True, iter_1= matrix_.iteration, iter_2=matrix_.soft_constraint_iteration)
                 C[constraint_index:constraint_index + nx, \
                 state_control_index:state_control_index + n + nx] = np.hstack((-Ak, -Bk, np.eye(nx)))
-                xkp1 = self.plant.integrator(x[:,k], u[:,k], dt,iter_1=self.iteration, iter_2=self.soft_constraint_iteration)
+                xkp1 = self.plant.integrator(x[:,k], u[:,k], dt,iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration)
                 c[constraint_index:constraint_index + nx, 0] = x[:,k+1]-xkp1
                 constraint_index += nx
                 
-                self.saved_Ak.append({'value': Ak,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-                self.saved_Bk.append({'value':  Bk, 'iteration':self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-                self.saved_xkp1.append({'value': xkp1, 'iteration':self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_Ak.append({'value': Ak,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+                self.saved_Bk.append({'value':  Bk, 'iteration':matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+                self.saved_xkp1.append({'value': xkp1, 'iteration':matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
                 if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, k):
                     jac = self.other_constraints.jacobian_hard_constraints(x[:,k], u[:,k], k)
                     val = self.other_constraints.value_hard_constraints(x[:,k], u[:,k], k)
-                    self.saved_jacobian_hard_constraints.append({'value': jac,'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                    self.saved_jacobian_hard_constraints.append({'value': jac,'iteration': matrix_.iteration,'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
                     if val is not None and len(val):
                         num_active_const_k = len(val)
@@ -259,19 +250,19 @@ class TrajoptMPCReference:
                 state_control_index += n
 
             G[state_control_index:state_control_index + nx, \
-            state_control_index:state_control_index + nx] = self.cost.hessian(x[:,N-1], timestep = N-1, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
-            g[state_control_index:state_control_index + nx, 0] = self.cost.gradient(x[:,N-1], timestep = N-1, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            state_control_index:state_control_index + nx] = self.cost.hessian(x[:,N-1], timestep = N-1, iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
+            g[state_control_index:state_control_index + nx, 0] = self.cost.gradient(x[:,N-1], timestep = N-1, iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
             if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
                 gcNm1 = self.other_constraints.jacobian_soft_constraints(x[:,N-1], timestep = N-1)
                 g[state_control_index:state_control_index + nx, :] = g[state_control_index:state_control_index + nx, :]+gcNm1
                 G[state_control_index:state_control_index + nx, \
                 state_control_index:state_control_index + nx] = G[state_control_index:state_control_index + nx, state_control_index:state_control_index + nx]+np.outer(gcNm1,gcNm1)
-                self.saved_jacobian_soft_constraints.append({'value': gcNm1, 'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_jacobian_soft_constraints.append({'value': gcNm1, 'iteration': matrix_.iteration,'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
             if total_other_constraints > 0 and self.other_constraints.total_hard_constraints(x, u, N-1):
                 jac = self.other_constraints.jacobian_hard_constraints(x[:,N-1], timestep = N-1)
                 val = self.other_constraints.value_hard_constraints(x[:,N-1], timestep = N-1)
-                self.saved_jacobian_hard_constraints.append({'value': jac, 'iteration': self.iteration,'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_jacobian_hard_constraints.append({'value': jac, 'iteration': matrix_.iteration,'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
                 if val is not None and len(val):
                     num_active_const_k = len(val)
                     C[constraint_index:constraint_index + num_active_const_k, \
@@ -288,7 +279,7 @@ class TrajoptMPCReference:
         err = list(map(abs,x_err))
         c = mode_func(err)
         for k in range(N-1):
-            xkp1 = self.plant.integrator(x[:,k], u[:,k], dt,iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            xkp1 = self.plant.integrator(x[:,k], u[:,k], dt,iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
             x_err = x[:,k+1]-xkp1
             c = c+mode_func(list(map(abs,x_err)))
         # then do all other constraints
@@ -306,16 +297,16 @@ class TrajoptMPCReference:
         
         J = 0
         for k in range(N-1):
-            cost=self.cost.value(x[:,k], u[:,k], k, self.iteration, self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+            cost=self.cost.value(x[:,k], u[:,k], k, matrix_.iteration, matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
             J = J+cost
-        J = J+self.cost.value(x[:,N-1], timestep = N-1, iter_1=self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)
+        J = J+self.cost.value(x[:,N-1], timestep = N-1, iter_1=matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)
         # add soft constraints if applicable
         if self.other_constraints.total_soft_constraints() > 0:
             for k in range(N-1):
                 J = J+self.other_constraints.value_soft_constraints(x[:,k], u[:,k], k)
             J = J+self.other_constraints.value_soft_constraints(x[:,N-1], timestep = N-1)
         
-        self.saved_tot_cost.append({'value': J,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_tot_cost.append({'value': J,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
         return J
 
 
@@ -328,10 +319,10 @@ class TrajoptMPCReference:
         
         G, g, C, c = self.formKKTSystemBlocks(x, u, xs, N, dt)
 
-        self.saved_G.append({'value':G,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-        self.saved_g.append({'value':g,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-        self.saved_C.append({'value':C,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-        self.saved_c.append({'value':c,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_G.append({'value':G,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+        self.saved_g.append({'value':g,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+        self.saved_C.append({'value':C,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+        self.saved_c.append({'value':c,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
         total_dynamics_intial_state_constraints = nx*N
         total_other_constraints = self.other_constraints.total_hard_constraints(x, u)
@@ -375,10 +366,10 @@ class TrajoptMPCReference:
         
         G, g, C, c = self.formKKTSystemBlocks(x, u, xs, N, dt)
 
-        self.saved_G.append({'value': G,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-        self.saved_g.append({'value': g,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-        self.saved_C.append({'value': C,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-        self.saved_c.append({'value': c,'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+        self.saved_G.append({'value': G,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+        self.saved_g.append({'value': g,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+        self.saved_C.append({'value': C,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+        self.saved_c.append({'value': c,'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
         
         
         total_dynamics_intial_state_constraints = nx*N
@@ -393,27 +384,28 @@ class TrajoptMPCReference:
                 G = G+(rho*matrix_(np.eye(G.shape[0])))
                        
             invG = matrix_.invert_matrix(G)
-            self.saved_invG.append({'value': invG, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_invG.append({'value': invG, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
             # compute cond of G
             S = BR-(C@(invG@C.transpose()))
             gamma = c-(C@(invG@g))
-            self.saved_invG.append({'value': invG, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-            self.saved_S.append({'value': S, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-            self.saved_gamma.append({'value': gamma, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_invG.append({'value': invG, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+            self.saved_S.append({'value': S, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+            self.saved_gamma.append({'value': gamma, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
             if not use_PCG:
                 l = matrix_.linalg_solve(S, gamma)
             else:
+
                 pcg = PCG(S, gamma, nx, N, options = options, overloading= True)
                 if 'guess' in options.keys():
                     pcg.update_guess(options['guess'])
                 l, traces = pcg.solve()
 
 
-                self.saved_inner_traces.append((traces, self.iteration,self.soft_constraint_iteration, self.line_search_iteration))
-                self.saved_Pinv.append({'value': pcg.Pinv, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_inner_traces.append((traces, matrix_.iteration,matrix_.soft_constraint_iteration, matrix_.line_search_iteration))
+                self.saved_Pinv.append({'value': pcg.Pinv, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
                 self.n_inner_iter= len(traces)
-            self.saved_l.append({'value': l, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_l.append({'value': l, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
             
 
             gCl = g-(C.transpose()@l)
@@ -431,9 +423,9 @@ class TrajoptMPCReference:
             S = BR - np.matmul(C, np.matmul(invG, C.transpose()))
             gamma = c - np.matmul(C, np.matmul(invG, g))
 
-            self.saved_invG.append({'value': invG, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-            self.saved_S.append({'value': S, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-            self.saved_gamma.append({'value': gamma, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_invG.append({'value': invG, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+            self.saved_S.append({'value': S, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+            self.saved_gamma.append({'value': gamma, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
             if not use_PCG:
                 try:
@@ -448,11 +440,11 @@ class TrajoptMPCReference:
                     pcg.update_guess(options['guess'])
 
                 l, traces,  = pcg.solve()
-                self.saved_inner_traces.append((traces, self.iteration, self.soft_constraint_iteration))
-                self.saved_Pinv.append({'value': pcg.Pinv, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_inner_traces.append((traces, matrix_.iteration, matrix_.soft_constraint_iteration))
+                self.saved_Pinv.append({'value': pcg.Pinv, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
                 self.n_inner_iter=len(traces)
             
-            self.saved_l.append({'value': l, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+            self.saved_l.append({'value': l, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
             
             gCl = g - np.matmul(C.transpose(), l)
             dxu = np.matmul(invG, gCl)
@@ -460,7 +452,7 @@ class TrajoptMPCReference:
             dxul = np.vstack((dxu,l))
 
 
-            return dxul
+        return dxul
 
     def reduce_regularization(self, rho: float, drho: float, options: dict):
         self.set_default_options(options)
@@ -535,7 +527,7 @@ class TrajoptMPCReference:
         xs = copy.deepcopy(x[:,0])
 
         # Start the main loops (soft constraint outer loop)
-        self.soft_constraint_iteration = 0
+        matrix_.soft_constraint_iteration = 0
         while 1:
             # print("Inside Soft constraints loop")
 
@@ -561,7 +553,7 @@ class TrajoptMPCReference:
             
             inner_iters = 0
             self.trace = [{
-                'outer_iteration': self.soft_constraint_iteration,
+                'outer_iteration': matrix_.soft_constraint_iteration,
                 'iteration': 0,
                 'line_search_iteration': 0,
                 'alpha': 1,
@@ -577,7 +569,7 @@ class TrajoptMPCReference:
             }]
 
             # Start the main loop (SQP main loop)
-            self.iteration = 0
+            matrix_.iteration = 0
             while 1:
 
                 #
@@ -603,7 +595,7 @@ class TrajoptMPCReference:
                     print("If calling from SQP the solver must be called QP-X where X is a solver option above.")
                     exit()
 
-                self.saved_dxul.append({'value': dxul, 'iteration': self.iteration, 'outer_iteration': self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                self.saved_dxul.append({'value': dxul, 'iteration': matrix_.iteration, 'outer_iteration': matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
 
                 
         
@@ -613,10 +605,10 @@ class TrajoptMPCReference:
                 #
                 alpha = 1
                 error = False
-                self.line_search_iteration =0
+                matrix_.line_search_iteration =0
                 while 1:
 
-                    # print("     Start of line seach loop, iteration:", self.iteration )
+                    # print("     Start of line seach loop, iteration:", matrix_.iteration )
                     #
                     # Apply the update
                     #
@@ -642,14 +634,14 @@ class TrajoptMPCReference:
                     #
                     D = 0 
                     for k in range(N-1):
-                        D += float(self.cost.gradient(x_new[:,k], u_new[:,k], k,self.iteration, self.soft_constraint_iteration, self.line_search_iteration)@dxul[n*k : n*(k+1), 0])
+                        D += float(self.cost.gradient(x_new[:,k], u_new[:,k], k,matrix_.iteration, matrix_.soft_constraint_iteration, matrix_.line_search_iteration)@dxul[n*k : n*(k+1), 0])
                         
                         # Add soft constraints if applicable
                         if self.other_constraints.total_soft_constraints(timestep = k) > 0:
                             D += float(self.other_constraints.jacobian_soft_constraints(x_new[:,k], u_new[:,k], k)[:,0].dot(dxul[n*k : n*(k+1), 0]))
 
                     # D += np.dot(self.cost.gradient(x_new[:,N-1], timestep = N-1), dxul[n*(N-1) : n*(N-1)+nx, 0])
-                    D += float(self.cost.gradient(x_new[:,N-1], timestep = N-1, iter_1= self.iteration, iter_2=self.soft_constraint_iteration, iter_3=self.line_search_iteration)@dxul[n*(N-1) : n*(N-1)+nx, 0])
+                    D += float(self.cost.gradient(x_new[:,N-1], timestep = N-1, iter_1= matrix_.iteration, iter_2=matrix_.soft_constraint_iteration, iter_3=matrix_.line_search_iteration)@dxul[n*(N-1) : n*(N-1)+nx, 0])
                     # Add soft constraints if applicable
                     if self.other_constraints.total_soft_constraints(timestep = N-1) > 0:
                         #D += np.dot(self.other_constraints.jacobian_soft_constraints(x_new[:,N-1], timestep = N-1)[:,0], dxul[n*(N-1) : n*(N-1)+nx, 0])
@@ -679,11 +671,11 @@ class TrajoptMPCReference:
                         u = u_new
                         J = J_new
                         c = c_new
-                        self.saved_x.append({'value': x, 'iteration': self.iteration, 'outer_iteration': self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
-                        self.saved_u.append({'value': u, 'iteration': self.iteration, 'outer_iteration':self.soft_constraint_iteration, 'line_search_iteration': self.line_search_iteration})
+                        self.saved_x.append({'value': x, 'iteration': matrix_.iteration, 'outer_iteration': matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
+                        self.saved_u.append({'value': u, 'iteration': matrix_.iteration, 'outer_iteration':matrix_.soft_constraint_iteration, 'line_search_iteration': matrix_.line_search_iteration})
                         merit = merit_new
                         if options['DEBUG_MODE_SQP_DDP']:
-                            print("Iter[", self.iteration, "] Cost[", J_new, "], Constraint Violation[", c_new, "], mu [", mu, "], Merit Function[", merit_new, "] and Reduction Ratio[", reduction_ratio, "] and rho [", rho, "]")
+                            print("Iter[", matrix_.iteration, "] Cost[", J_new, "], Constraint Violation[", c_new, "], mu [", mu, "], Merit Function[", merit_new, "] and Reduction Ratio[", reduction_ratio, "] and rho [", rho, "]")
                         # print("     Reduce rho")
                         # update regularization
                         rho, drho = self.reduce_regularization(rho, drho, options)
@@ -697,9 +689,9 @@ class TrajoptMPCReference:
                             print("      updated merit: ", merit, " <<< delta J vs c: ", delta_J, " ", delta_c)
                             
                         self.trace.append({
-                            'outer_iteration': self.soft_constraint_iteration,
-                            'iteration': self.iteration,
-                            'line_search_iteration': self.line_search_iteration, #int(-np.log(alpha) / np.log(2)) + 1,
+                            'outer_iteration': matrix_.soft_constraint_iteration,
+                            'iteration': matrix_.iteration,
+                            'line_search_iteration': matrix_.line_search_iteration, #int(-np.log(alpha) / np.log(2)) + 1,
                             'alpha': alpha,
                             'rho': rho,
                             'J': J,
@@ -723,7 +715,7 @@ class TrajoptMPCReference:
                         if options['DEBUG_MODE_SQP_DDP']:
                             print("Alpha[", alpha, "] Rejected with Cost[", J_new, "], Constraint Violation[", c_new, "], mu [", mu, "], Merit Function[", merit_new, "] and Reduction Ratio[", reduction_ratio, "]")
                         alpha *= options['alpha_factor_SQP_DDP']
-                        self.line_search_iteration +=1
+                        matrix_.line_search_iteration +=1
                     #
                     # If failed the whole line search report the error
                     #
@@ -735,9 +727,9 @@ class TrajoptMPCReference:
                             print("Line search failed")
 
                         self.trace.append({
-                            'outer_iteration': self.soft_constraint_iteration,
-                            'iteration': self.iteration,
-                            'line_search_iteration': self.line_search_iteration, #int(-np.log(alpha) / np.log(2)) + 1,
+                            'outer_iteration': matrix_.soft_constraint_iteration,
+                            'iteration': matrix_.iteration,
+                            'line_search_iteration': matrix_.line_search_iteration, #int(-np.log(alpha) / np.log(2)) + 1,
                             'alpha': alpha,
                             'rho': rho,
                             'J': J,
@@ -753,18 +745,18 @@ class TrajoptMPCReference:
                 #
                 # Check for exit (or error) and adjust accordingly
                 #
-                exit_flag, self.iteration, rho, drho = self.check_for_exit_or_error(error, delta_J, self.iteration, rho, drho, options)
+                exit_flag, matrix_.iteration, rho, drho = self.check_for_exit_or_error(error, delta_J, matrix_.iteration, rho, drho, options)
                 if exit_flag:
                     break
 
             #
             # Outer loop updates of soft constraint hyperparameters (where appropriate)
             #
-            exit_flag, self.soft_constraint_iteration = self.check_and_update_soft_constraints(x, u, self.soft_constraint_iteration, options)
+            exit_flag, matrix_.soft_constraint_iteration = self.check_and_update_soft_constraints(x, u, matrix_.soft_constraint_iteration, options)
             if exit_flag:
                 break
 
 
-        return x, u, self.exit_sqp, self.exit_soft, self.soft_constraint_iteration, self.iteration
+        return x, u, self.exit_sqp, self.exit_soft, matrix_.soft_constraint_iteration, matrix_.iteration
 
    

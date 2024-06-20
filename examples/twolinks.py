@@ -11,19 +11,19 @@ import csv
 from overloading import matrix_
 import sys
      
-overloading=True
-n_test=4
+overloading=False
+
 n=5
 type_cost='urdf'
 set_hard_constraints=False
 set_soft_constraints=False
 
-record=False
+
 N = 10
 dt = 0.1
 
 sqp_solver_methods = [SQPSolverMethods.PCG_SS] #["N", "S", "PCG-J", "PCG-BJ", "PCG-SS"]
-mpc_solver_methods = [MPCSolverMethods.QP_PCG_SS] #["iLQR", "QP-N", "QP-S", "QP-PCG-J", "QP-PCG-BJ", "QP-PCG-SS"]
+
 
 options= {}
 options['path_to_urdf'] = '/home/marguerite/Documents/lab/TrajoptMPCReference/models/arm2.urdf'
@@ -56,7 +56,11 @@ else:
         [0.0, 0.0, 0.0, 100.0]])
     R=np.array([[0.1, 0.0],
         [0.0, 0.1]])
-    xg= np.array([1, 1.5, 0.,0.])
+    # xg= np.array([-1.18, -1.58, 0.,0.]) #2
+    xg= np.array([-1., 1.5, 0.,0.]) #1
+    # xg= np.array([1., 1.3, 0.,0.]) #1
+
+
 
 if(type_cost =='sym'):
     cost=ArmCost(Q,QF,R,xg,simplified_hessian=True)
@@ -86,18 +90,16 @@ options = {"expected_reduction_min_SQP_DDP":-100, "RETURN_TRACE_SQP": True, "ove
 
 t1 = time.time()
 # #cProfile.run('runSQPExample(plant, cost, constraints, N, dt, sqp_solver_methods, options)', sort='cumtime')
-runSQPExample(plant, cost, constraints, N, dt, sqp_solver_methods, options, n_test=1)
+runSQPExample(plant, cost, constraints, N, dt, sqp_solver_methods, options, n_test=4, record=True)
 t2 = time.time()
 
 
 
 print(f"It took {t2-t1:.2f} seconds to compute")
 
-
-
-
-if overloading:
-    csv_file_path = f'../analysis/data/{type_cost}/op{n_test}.csv'
-    with open(csv_file_path, 'w', newline='\n') as file:
-        csv_writer = csv.writer(file)
-        csv_writer.writerows(matrix_.operation_history)
+# if overloading:
+#     file_path = f'../analysis/data/{type_cost}/op{n_test}.plk'
+#     df = pd.DataFrame(matrix_.operation_history)
+#     # print(df)
+#     df.to_pickle(file_path)
+          

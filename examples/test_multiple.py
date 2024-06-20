@@ -13,25 +13,44 @@ import pandas as pd
 
 from overloading import matrix_
 
-overloading = False
+overloading = True
 
 N = 10
 dt = 0.1
+n=20
+
+id_start=4
+id_stop=20
+
+max_radius=2
+xs = np.linspace(-max_radius, max_radius, n)
+ys = np.linspace(-max_radius, max_radius, n)
+xgs=[[x,y, 0, 0] for x in xs for y in ys]
+xg_sweep = [[x, y, 0, 0] for x in xs for y in ys if x**2 + y**2 <= max_radius**2] # Filter out points that are inside the square but not the cirle 
 
 settings_df = pd.read_csv('test_settings.csv')
+sweep=(settings_df.loc[id_start]['xg']=='Sweep')
+sweep=True
+if sweep:
+    id_stop=len(xg_sweep)+id_start
+
+default_xg= [1, 1.5, 0., 0.]
+
 def run_test(test_settings):
-    n_test = 1#test_settings['Test number']
-    n_links = test_settings['number of links']
+    n_test = test_settings['Test number']+3
+    n_links = 2#test_settings['number of links']
     xg = test_settings['xg']
-    type_cost = test_settings['type of Cost']
-    N = test_settings['N']
+    type_cost = 'URDF'#test_settings['type of Cost']
+    N = 10#test_settings['N']
     set_hard_constraints = False#test_settings['Set Hard constraints']
     set_soft_constraints = False# test_settings['Soft constraints']
-    hessian = 0# test_settings['Hessian']
-    integrator_type = test_settings['Integrator type']
-    lin_sys_method = test_settings['Lin Sys method']
-    use_pcg = test_settings['Use PCG']
-    minv = test_settings['Minv']
+    hessian = 'approximate'# test_settings['Hessian']
+   
+    
+    if sweep:
+        xg=xg_sweep[n_test]
+    else:
+        xg=default_xg
 
     sqp_solver_methods = [SQPSolverMethods.PCG_SS]
     options = {}
@@ -50,7 +69,7 @@ def run_test(test_settings):
                       [0.0, 0.0, 0.0, 100.0]])
         R = matrix_([[0.1, 0.0],
                      [0.0, 0.1]])
-        xg = matrix_([-1., 1.5, 0., 0.])
+        xg = matrix_([-1.18, -1.58, 0.,0.])
     else:
         Q = np.array([[1.0, 0.0, 0.0, 0.0],
                       [0.0, 1.0, 0.0, 0.0],
@@ -102,9 +121,9 @@ def run_test(test_settings):
     runSQPExample(plant, cost, constraints, N, dt, sqp_solver_methods, options, n_test, record=True)
 
 def parallel_tests(settings_df):
-    n_tot_test=1#len(settings_df)
-    test_settings_list = [settings_df.iloc[i].to_dict() for i in range(n_tot_test)]
-
+    n_tot_test= id_stop-id_start
+    test_settings_list = [settings_df.iloc[i].to_dict() for i in range(id_start,id_stop)]
+    
     with multiprocessing.Pool(processes=n_tot_test) as pool:
         pool.map(run_test, test_settings_list)
 

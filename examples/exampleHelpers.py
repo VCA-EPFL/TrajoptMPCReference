@@ -152,7 +152,11 @@ def runSolversSQP(trajoptMPCReference: TrajoptMPCReference, N: int, dt: float, s
 
 				file_path = f'../data/{n_test}/{var}.plk'
 				save_in_file(file_path, variable_to_save)
-			
+
+			if options['overloading']:
+				file_path = f'../data/{n_test}/op.plk'
+				df = pd.DataFrame(matrix_.operation_history)
+				df.to_pickle(file_path)
 		
 def runSQPExample(plant, cost, constraints, N, dt, solver_methods, options = {}, n_test=0, record=False):
 	

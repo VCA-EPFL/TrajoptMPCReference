@@ -1,14 +1,17 @@
 import numpy as np
 import inspect
 # from exampleHelpers import *
-from TrajoptMPCReference import iteration,soft_constraint_iteration
+
 
 class matrix_(np.ndarray):
     operation_history = []
+    line_search_iteration = 0
+    iteration =0 # QP solve iteration
+    soft_constraint_iteration = 0 # outer loop
+
     
 
     def __new__(cls, w):
-
         obj = np.asarray(w).view(cls)
         return obj
     
@@ -141,19 +144,23 @@ class matrix_(np.ndarray):
             return np.reshape(self,shape)
         
     def save_op_history(self,type,o):
-        
+
         current_frame = inspect.currentframe()
         outerframes=inspect.getouterframes(current_frame, 2)
         if(outerframes[2].filename.split('/')[-1]=='overloading.py'): # if matmul, or rsub or rmul or radd, don't want to record this function call
             frames=outerframes[3:-3] #-3 because first calls are not interesting (twolinks, SQPexamples, runSQPexamples)
         else:
             frames=outerframes[2:-3] # by default start at 2 (0: save_op_history, 1: operation function)
-        if(len(frames)>10):
-            raise ValueError("Horizon higher than 10, is: ", len(frames))
+        if(len(frames)>30):
+            raise ValueError("Horizon higher than 30, is: ", len(frames))
         
-        padding=[np.nan] * (10 - len(frames))# Fill up to 10 so everyline has same number of columns => checked before if 10 columns if enough for every operation
+        padding=[np.nan] * (30 - len(frames))# Fill up to 10 so everyline has same number of columns => checked before if 10 columns if enough for every operation
         filenames=[frame.filename.split('/')[-1] for frame in frames]
         functions=[frame.function for frame in frames]
-
         lines=[frame.lineno for frame in frames]
-        matrix_.operation_history.append((type, self, o, *filenames,*padding, *functions, *padding,*lines,*padding, iteration, soft_constraint_iteration))
+
+        iter_1=matrix_.iteration
+        iter_2=matrix_.soft_constraint_iteration
+        matrix_.operation_history.append((type, self, o, *filenames,*padding, *functions, *padding,*lines,*padding, iter_1, iter_2))
+        
+        

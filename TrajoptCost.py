@@ -407,7 +407,9 @@ class UrdfCost(TrajoptCost):
 			cost = 0.5*( dx.transpose()@(currQ@dx))
 			if not isinstance(u, type(None)):
 				cost = cost+(0.5*( u.transpose()@(self.R@u)))
-			self.saved_cost.append((cost,iter_1,iter_2)) 
+			
+			self.saved_cost.append({'value':cost,'iteration':iter_1,'outer_iteration':iter_2, 'line_search_iteration': iter_3})
+			self.saved_dx.append({'value':dx,'iteration':iter_1,'outer_iteration':iter_2, 'line_search_iteration': iter_3})
 			return np.float64(cost)
 		else:
 			cost = 0.5*np.matmul(dx.transpose(),np.matmul(currQ,dx))
