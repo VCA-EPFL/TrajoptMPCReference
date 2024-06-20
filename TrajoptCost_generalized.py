@@ -384,7 +384,10 @@ class UrdfCost(TrajoptCost):
 		self.n=self.plant.get_num_pos() # n joints
 		self.offsets=[np.matrix([[0,1,0,1]])] # May need to be updated if change in URDF
 		self.no_hess=[]
+<<<<<<< HEAD
 		print("Here")
+=======
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
 
 	def compute_J(self,q): # online value of the Jacobian
 		J=self.plant.rbdReference.Jacobian(q,self.offsets)

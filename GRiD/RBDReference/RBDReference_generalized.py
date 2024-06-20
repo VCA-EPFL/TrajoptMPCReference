@@ -2,7 +2,11 @@ import numpy as np
 import copy
 import sympy as sp
 np.set_printoptions(precision=4, suppress=True, linewidth = 100)
+<<<<<<< HEAD
 
+=======
+import time
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
 class RBDReference:
     def __init__(self, robotObj):
         self.robot = robotObj # instance of Robot Object class created by URDFparser``
@@ -12,7 +16,10 @@ class RBDReference:
         # vec x = [wx   0]
         #         [vox wx]
         #(crm in spatial_v2_extended)
+<<<<<<< HEAD
         if(self.)
+=======
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         v_cross = np.array([0, -v[2], v[1], 0, 0, 0,
                             v[2], 0, -v[0], 0, 0, 0,
                             -v[1], v[0], 0, 0, 0, 0,
@@ -93,15 +100,23 @@ class RBDReference:
     def end_effector_positions(self, q, offsets = [np.matrix([[0,1,0,1]])]):
 
         eePos_arr = []
+<<<<<<< HEAD
 
         for jid in self.robot.get_leaf_nodes():
 
+=======
+        for jid in self.robot.get_leaf_nodes():
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
             jidChain = sorted(self.robot.get_ancestors_by_id(jid))
             jidChain.append(jid)
             Xmat_hom = np.eye(4)
             for ind in jidChain:
                 currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
                 Xmat_hom = np.matmul(Xmat_hom,currX)
+<<<<<<< HEAD
+=======
+
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
             currId = jid
             Xmat_hom = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
             currId = self.robot.get_parent_id(currId)
@@ -109,9 +124,15 @@ class RBDReference:
                 currX = self.robot.get_Xmat_hom_Func_by_id(currId)(q[currId])
                 Xmat_hom = np.matmul(currX,Xmat_hom)
                 currId = self.robot.get_parent_id(currId)
+<<<<<<< HEAD
             eePos_xyz1 = Xmat_hom * offsets[0].transpose()
             eePos_arr.append(eePos_xyz1[:2,:])
 
+=======
+
+            eePos_xyz1 = Xmat_hom * offsets[0].transpose()
+            eePos_arr.append(eePos_xyz1[:2,:])
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         return eePos_arr[0]
 
     """
@@ -125,7 +146,11 @@ class RBDReference:
         return obj
     #NOT USED
     def symbolic_jacobian(self,offsets = [np.matrix([[0,1,0,1]])]):
+<<<<<<< HEAD
         n = self.robot.get_num_joints()
+=======
+        n = self.robot.get_num_joints()  
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         q_symbols = [sp.Symbol('q{}'.format(i)) for i in range(1, n+1)]
 
         deePos_arr = []
@@ -163,6 +188,11 @@ class RBDReference:
 
             deePos_arr.append(deePos)
         J=deePos_arr[0][:2,:2]
+<<<<<<< HEAD
+=======
+
+        print("Sym Jacobian\n", J)
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         return J
         
     #NOT USED
@@ -172,6 +202,10 @@ class RBDReference:
         J=self.symbolic_jacobian(offsets)
         #need symbolic expression to diff
         dJdq = [[sp.diff(J[i, j], q) for q in q_symbols] for i in range(J.shape[0]) for j in range(J.shape[1])]
+<<<<<<< HEAD
+=======
+        print("dJdq sym;\n",dJdq)
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         return sp.lambdify(q_symbols,dJdq, "numpy")
 
     # Commented part => product of Xmat and ddXmat
@@ -200,11 +234,15 @@ class RBDReference:
         #             deePos_col = deePos_xyz1#[:3,:]
         #             deePos = self.equals_or_hstack(deePos,deePos_col)
         #     jacobian_grad.append(deePos)
+<<<<<<< HEAD
 
+=======
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         # dJdq[0,:]= jacobian_grad[0][0,:n]
         # dJdq[1,:]= [dJdq[0,1]]*n
         # dJdq[2,:]= jacobian_grad[0][1,:2]
         # dJdq[3,:]= [dJdq[2,1]]*n
+<<<<<<< HEAD
         # return dJdq
 
         # J_grad[0,:]= jacobian_grad[0][0,:n]
@@ -221,10 +259,14 @@ class RBDReference:
         # dJdq[2,:] = -J[0,:]
         # dJdq[3,:] = [J[0,1],J[0,1]]
         # return dJdq
+=======
+        # print("dJdq 1\n", dJdq)
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
 
         n = self.robot.get_num_joints()
         dJdq=np.zeros((2*n,n))
         J=self.Jacobian(q,offsets)
+<<<<<<< HEAD
         if n==2:
             print("N: ", n)
 
@@ -236,6 +278,16 @@ class RBDReference:
         if n==3:
             print("N is: ", n)
 
+=======
+
+        if n==2:
+            dJdq[0,:] = -J[1,:]
+            dJdq[1,:] = [-J[1,1],-J[1,1]]
+            dJdq[2,:] = J[0,:]
+            dJdq[3,:] = [J[0,1],J[0,1]]
+
+        if n==3:
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
             dJdq[0,:] = -J[1,:]
             dJdq[1,:2]= [-J[1,1],-J[1,1]]
             dJdq[1,2] = -J[1,2]
@@ -244,6 +296,7 @@ class RBDReference:
             dJdq[4,:2]= [J[0,1],J[0,1]]
             dJdq[4,2] = J[0,2]
             dJdq[5,:] = [J[0,2]]*n
+<<<<<<< HEAD
         # # Need to do generalize for every n
         return dJdq
 
@@ -292,6 +345,44 @@ class RBDReference:
         # ddJdq[2,:] = -J[1,:]
         # ddJdq[3,:] = [-J[1,1],-J[1,1]]
 
+=======
+        # Need to do generalize for every n
+        return dJdq
+
+
+    # Commented part => product of Xmat and ddXmat
+    # dJdq has same elements as J => less compute
+    def d2Jdq2(self,q ,offsets = [np.matrix([[0,1,0,1]])]):
+        n = self.robot.get_num_joints()
+        ddJdq=np.zeros((2*n,n))
+        J_list = []
+        for jid in self.robot.get_leaf_nodes():
+            jidChain = sorted(self.robot.get_ancestors_by_id(jid))
+            jidChain.append(jid)
+            deePos = None
+            for dind in range(n):
+                if dind not in jidChain:
+                    deePos_col = np.zeros((6,1))
+                    deePos = self.equals_or_hstack(deePos,deePos_col)
+                else:
+                    Xmat_hom = np.eye(4)
+                    for ind in jidChain:
+                    
+                        if ind == dind: # use second derivative
+                            currX = self.robot.get_dddXmat_hom_Func_by_id(ind)(q[ind])
+                        else: # use normal transform
+                            currX = self.robot.get_Xmat_hom_Func_by_id(ind)(q[ind])
+                        Xmat_hom = np.matmul(Xmat_hom,currX)
+                    deePos_xyz1 = Xmat_hom * offsets[0].transpose()
+                    deePos_col = deePos_xyz1[:3,:]
+                    deePos = self.equals_or_hstack(deePos,deePos_col)
+
+            J_list.append(deePos)
+        ddJdq[0,:]= J_list[0][0,:n]
+        ddJdq[1,:]= [ddJdq[0,1]]*n
+        ddJdq[2,:]= J_list[0][1,:n]
+        ddJdq[3,:]= [ddJdq[2,1]]*n
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
 
 
         n = self.robot.get_num_joints()
@@ -312,6 +403,10 @@ class RBDReference:
             ddJdq[4,:2]= [J[1,1],J[1,1]]
             ddJdq[4,2] = J[1,2]
             ddJdq[5,:] = [J[1,2]]*n
+<<<<<<< HEAD
+=======
+
+>>>>>>> 6c9bf85f1134657090a67ed34e4105053eb2a29e
         return ddJdq
 
     #NOT USED
